@@ -1,0 +1,6 @@
+1. services.msc (WIN+R) - to start the DB
+2. E:\PostgreeSQL\bin\psql.exe -U postgres -h localhost -p 5432 -d aep - Conect to aep
+3. \dt - Check tables
+4. SELECT * FROM store; - TO check contents of table store
+5. net stop postgresql-x64-17 - stop DB
+6. Storage Blob Data Contributor - Add this role when creating blob storage in Azure
