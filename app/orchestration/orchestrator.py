@@ -97,75 +97,18 @@ class RouteOrchestor:
 
 
 
-            #sorted_agents_dependency = sorted(self.agent_with_dependencies.values(),  key = lambda x : x["priority"])
-            #sorted_agents_no_dependency = sorted(self.agent_no_dependencies.values(), key = lambda x : x["priority"
+       
                
-'''
-result = await self.agent_executor.graph.ainvoke(self.state, config , context = context) # this return overall langraph state
-
-while "__interrupt__" in result:
-
-print("🔥 GRAPH INTERRUPT CAUGHT IN DEEP_AGENT_EXECUTOR")
-
-print(result["__interrupt__"][0].value["action_requests"])
-print(result["__interrupt__"][0].value["review_configs"])
-
-
-decision = input("Do you want to approve or reject this tool call? ").strip().lower()
-    
-if decision in ["approve","reject"]:
-result = await self.agent_executor.graph.ainvoke(  
-                                    Command(resume={
-                                            "decisions": [
-                                                {"type": decision} #"reject"
-                                            ]
-                                        }
-                                    ),
-                                    config = config,
-                                    context = context,
-                                    )  
 
 
 
-print("\n========== CHECKPOINT TEST ==========")
 
-
-    
-
-    else:
-
-
-        log.info("sucessfully executed agent:%s -> wave:%s", agent , wave)
-
-        self.route_executed.append(route_id)
-        
-        log.info("Agent executed list:%s",self.route_executed)
-
-
-except Exception:
-log.exception("Orchestration_agent execution failed")
-self.route_failed.append(route_id)
-''' 
       
 
 
 
 
-         
 
-
-
-#Python orchestrator state → LangGraph execution state → node → updated LangGraph state → Python orchestrator state.
-        
-#self.state["context_given_agent"] = state_result["context_given_agent"]
-
-#self.agents_outputs  = state_result["agents_outputs"]
-
-#log.info("Context used by agent: %s, context:\n%s", agent, pformat(self.state["context_given_agent"].get(agent,"Na")))
-
-#log.info("Output produced by agent: %s, output:\n%s", agent, pformat(self.agents_outputs[agent]))
-                
-                
    
 '''
             task

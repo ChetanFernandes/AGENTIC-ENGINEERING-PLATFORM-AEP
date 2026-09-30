@@ -10,5 +10,6 @@ if __name__ == "__main__":
         "fast_api.api_layer:app",
         host="0.0.0.0",
         port=8000,
-        reload=False)
-    
+        reload=True,
+        reload_excludes=["fast_api/api_layer.py"]
+    )

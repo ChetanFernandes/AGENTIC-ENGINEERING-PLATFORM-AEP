@@ -138,20 +138,22 @@ if user_message:
         st.write(f"**{st.session_state.user_name}**")
         st.write(user_message)
 
+    '''
     # Temporary response
     assistant_response = (
         f"I received your message using thread "
         f"`{st.session_state.thread_id}`"
     )
+    '''
 
     # Store assistant message
     st.session_state.messages.append(
         {
             "role": "assistant",
-            "content": assistant_response
+            "content": response
         }
     )
 
     # Display assistant response
     with st.chat_message("assistant"):
-        st.write(assistant_response)
+        st.write(response)

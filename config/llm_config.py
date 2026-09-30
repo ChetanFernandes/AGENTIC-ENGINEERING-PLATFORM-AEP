@@ -9,7 +9,7 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-llm_openai = ChatOpenAI(model="gpt-5-mini", api_key=OPENAI_API_KEY, use_responses_api=True, output_version="responses/v1",)
+llm_openai = ChatOpenAI(model="gpt-6-luna", api_key=OPENAI_API_KEY, use_responses_api=True, output_version="responses/v1",)
 
 
 '''

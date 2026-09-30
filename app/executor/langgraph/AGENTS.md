@@ -82,8 +82,7 @@ After reading the file:
 - Respect the current task when it provides newer or conflicting
   information.
 - Do not assume personal memory is current if the task provides newer information.
-- If the personal memory file does not exist or is empty, continue normally.
-- Do not create additional personal memory files.
+- IF the personal memory file does not exist or is empty for a particular user, create the file only when there is new information that should be stored as memory for that user.
 - Do not store temporary task information, repository contents,
   tool results, analysis results, logs, or artifacts in personal
   memory.

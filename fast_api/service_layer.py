@@ -2,6 +2,7 @@ from app.executor.langgraph.graph import AgentExecutor
 from app.schemas.custom_schemas import RuntimeContextSchema
 from logger.log import setup_logging
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.types import Command, interrupt
 from config.database_config import DB_URI
 log = setup_logging()
 
@@ -30,16 +31,42 @@ class ServiceLayer:
             log.info("user_name:%s",user_name)
             log.info("thread_id:%s",thread_id)
             log.info("question:%s",question)
-            await self.initialize_langgraph(user_name,thread_id,question)
+            result = await self.initialize_langgraph(user_name,thread_id,question)
+            return result
         except Exception:
             log.exception("Error while receiving data in service layer")
 
 
     async def initialize_langgraph(self,user_name,thread_id,question):
         try:
-            runtime_context = RuntimeContextSchema(user_name = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
+            runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
             config = {"configurable" : {"thread_id": thread_id}}
-            await self.graph.ainvoke( {"user_request":question}, config = config, context = runtime_context)
+            result = await self.graph.ainvoke( {"user_request":question}, config = config, context = runtime_context)
+
+            while "__interrupt__" in result:
+
+                print("GRAPH INTERRUPT CAUGHT IN DEEP_AGENT_EXECUTOR")
+
+                print(result["__interrupt__"][0].value["action_requests"])
+                print(result["__interrupt__"][0].value["review_configs"])
+
+
+                decision = input("Do you want to approve or reject this tool call? ").strip().lower()
+                    
+                if decision in ["approve","reject"]:
+                    result = await self.agent_executor.graph.ainvoke(  
+                                                        Command(resume={
+                                                                "decisions": [
+                                                                    {"type": decision} #"reject"
+                                                                ]
+                                                            }
+                                                        ),
+                                                        config = config,
+                                                        context = runtime_context
+                                            )  
+
+            return result
+
         except Exception:
             log.exception("Error while processing the request")
 

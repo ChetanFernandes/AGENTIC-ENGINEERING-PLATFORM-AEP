@@ -30,7 +30,8 @@ def app_testing():
 @app.post('/chat')
 async def user_input(data:PayloadData):
     try:
-        return await service_layer.get_payload_data(data.user_name, data.thread_id , data.question)
+        result = await service_layer.get_payload_data(data.user_name, data.thread_id , data.question)
+        return result
     except Exception:
         log.exception("Error while receving the payload from UI")
         raise

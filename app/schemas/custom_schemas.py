@@ -34,7 +34,7 @@ class AgentInput(TypedDict):
 
 @dataclass
 class RuntimeContextSchema():
-    user_name:str
+    user_id:str
     checkpointer:Any|None = None
     backend:object|None = None
 
@@ -43,5 +43,7 @@ class ArtifactRecord(BaseModel):
     user_id:str
     agent:str
     storage_key:str
+
+
 
 

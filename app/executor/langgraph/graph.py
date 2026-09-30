@@ -1,35 +1,27 @@
-from app.schemas.custom_schemas import CustomState
+from app.schemas.custom_schemas import CustomState 
 from app.schemas.agent_output_schema import AgentOutput
 from langgraph.graph import StateGraph, START , END 
 from app.executor.context_management.context_manager import ContextManager
 from config.llm_config import llm_openai
 from deepagents import create_deep_agent
 from langsmith.sandbox import SandboxClient
-from pprint import pformat
 from app.executor.langgraph.prompt import main_agent_system_prompt
 from app.middleware.tool_call_tracking_middleware.tool_tracking import state_Tool_Tracking
-
 from app.middleware.summarization_middleware.summarization_middleware import create_summarization_middleware
 from app.middleware.tool_retry_middleware.tool_retry import (
     tool_error_retry_middleware, model_error_middleware, model_call_limit_middleware,tool_call_limit_middleware)
 from app.middleware.context_editing_middleware.context_editing import context_editing_middleware
 from app.sub_agent.sub_agents import sub_agent_caller
 from deepagents.backends import CompositeBackend, LangSmithSandbox
-#from langgraph.checkpoint.memory import MemorySaver
 from consolidation_agent.consolidation_agent import search_recent_conversation
 from deepagents import FilesystemPermission
-from dataclasses import dataclass
 from langgraph.runtime import Runtime
 from langchain_core.runnables import RunnableConfig
 from app.backends.store.store import backend
-from config.database_config import DB_URI
-from pprint import pprint
 from app.artifacts_storage.azure_blob import BlobStorage
 from app.mcp.mcp_manager.mcp_manager import MCPManager
 from app.utilis.utilis import InterruptDefinition
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from logger.log import setup_logging
-log = setup_logging()
 from app.utilis.utilis import client_factories, client_group, is_broken_mcp_session, InterruptDefinition
 from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import ProviderToolSearchMiddleware
@@ -40,6 +32,13 @@ from app.orchestration.orchestrator import RouteOrchestor
 from contextlib import AsyncExitStack
 from langgraph.types import Send
 import asyncio
+from pprint import pformat
+from pprint import pprint
+#from langgraph.checkpoint.memory import MemorySaver
+from dataclasses import dataclass
+from logger.log import setup_logging
+log = setup_logging()
+
 
 @dataclass
 class ContextSchema():
@@ -56,8 +55,17 @@ class AgentExecutor:
 
         # Sandbox
         self.client = SandboxClient()
-        self.ls_sandbox = self.client.create_sandbox()
+        sandboxes = self.client.list_sandboxes()
+        existing = next((sandbox for sandbox in sandboxes if sandbox.name =="aep-sandbox"),None)
+        if existing:
+            self.ls_sandbox = existing
+            log.info("Reusing Sandbox:%s ->", self.ls_sandbox.name)
+        else:
+            self.ls_sandbox = self.client.create_sandbox(name="aep-sandbox")
+            log.info("Created sandbox -> %s", self.ls_sandbox.name)
+            
         self.sandbox_backend = LangSmithSandbox(sandbox = self.ls_sandbox)
+ 
 
         # adding nodes
         self.graph.add_node("router",self.router)
@@ -67,7 +75,7 @@ class AgentExecutor:
         self.graph.add_node("state_tracking_before_deep_agent_execution",self.state_tracking_before_deep_agent_execution)
         self.graph.add_node("state_tracking_after_deep_agent_execution",self.state_tracking_after_deep_agent_execution)
         self.graph.add_node("store_tracking_after_deep_agent_execution",self.store_tracking_after_deep_agent_execution)
-        self.graph.add_node("fan_out_routes", self.fan_out_routes)
+        #self.graph.add_node("fan_out_routes", self.fan_out_routes)
         self.graph.add_node("fan_in_routes", self.fan_in_routes)
         self.graph.add_node("end_node", self.end_node)
 
@@ -81,10 +89,9 @@ class AgentExecutor:
         self.graph.add_edge("router", "orchestrator")
         self.graph.add_conditional_edges("orchestrator", self.route_after_orchestrator, {"revert_to_details_gathering_node": "details_gathering_node", "end_node": "end_node"})
         self.graph.add_edge("details_gathering_node","state_tracking_before_deep_agent_execution")
-        self.graph.add_edge("state_tracking_before_deep_agent_execution","fan_out_routes")
+        self.graph.add_conditional_edges("state_tracking_before_deep_agent_execution",self.fan_out_routes)
         self.graph.add_edge("deep_agent_executor","fan_in_routes")
         self.graph.add_edge("fan_in_routes","state_tracking_after_deep_agent_execution")
-        self.graph.add_conditional_edges("state_tracking_before_deep_agent_execution",self.fan_out_routes)
         self.graph.add_edge("store_tracking_after_deep_agent_execution","orchestrator")
         self.graph.add_edge("end_node", END)
 
@@ -99,10 +106,10 @@ class AgentExecutor:
         self.exit_stack = AsyncExitStack()
 
     async def router(self, question, runtime:Runtime, config : RunnableConfig):
-        #log.info("user_id:%s",runtime.context.user_name)
+        log.info("user_id:%s",runtime.context.user_id)
         log.info("checkpointer:%s",runtime.context.checkpointer)
         log.info("backend:%s",runtime.context.backend)
-        #log.info("thread_id:%s",config["configurable"].get("thread_id","NA"))
+        log.info("thread_id:%s",config["configurable"].get("thread_id","NA"))
  
         chat_template = ChatPromptTemplate.from_messages([
                                                     ("system", ROUTER_SYSTEM_PROMPT), 
@@ -126,7 +133,7 @@ class AgentExecutor:
 
         log.info("Details gathering for ready agent:%s", ready_agents)
 
-        user_id = runtime.context.user_name
+        user_id = runtime.context.user_id
 
         async def build_route_context(route):
             agent_name = route["agent"]
@@ -144,7 +151,7 @@ class AgentExecutor:
 
         for agent_name , result in results:
 
-            log.info("Details gathered for :%s , :%s", (agent_name , result))
+            log.info("Details gathered for :%s , :%s", agent_name , result)
 
         context_given_agent = dict(results)
 
@@ -169,28 +176,39 @@ class AgentExecutor:
 
     def fan_out_routes(self,state:CustomState):
         ready_routes = state["ready_routes"]
+        log.info("ready_routes -> %s", ready_routes)
         return [
                 Send(
                         "deep_agent_executor",
-                        {"current_route": route}
+
+                        {  
+                            "current_route": route,
+                            "context_given_agent": state.get("context_given_agent",{})
+                         
+                        }
                     )
                          
-                for route in ready_routes
+             for route in ready_routes 
             ]
          
     
     async def deep_agent_executor(self,state:CustomState, runtime:Runtime, config : RunnableConfig):
+
         current_route = state["current_route"]
-        log.info("Current_route",current_route)
-        
+
         task = current_route["task"]
         agent_name = current_route["agent"]
         route_id = current_route["route_id"]
         content = state["context_given_agent"].get(agent_name,{})
 
-        log.info("Executing agent:%s",agent_name)
+        log.info("Deep_agent_is_executing_agent -> %s", agent_name)
+        log.info("Task for agent is->%s",task)
+        log.info("Route_id->%s",route_id)
+        log.info("Context given is -> %s",content)
 
-        user_id = runtime.context.user_name
+        
+        user_id = runtime.context.user_id
+
         user_memory_file = f"/memories/personal/{user_id}_USER_MEMORY.md"
         system_prompt = main_agent_system_prompt.format(user_memory_file=user_memory_file)                             
         session_entry = await self.mcp_manager.acquire("github_1")
@@ -209,9 +227,9 @@ class AgentExecutor:
 
         if not self.interrupt_on:
             self.interrupt_on = interrupt.define_interrupt_on()
-            print("Calling interrupt function once ->%s",self.interrupt_on)
+            log.info("Calling interrupt function once ->%s",self.interrupt_on)
         else:
-            print("For second round self interrput not called -> %s",self.interrupt_on )
+            log.info("For second round self interrput not called -> %s",self.interrupt_on )
         
 
         memory_wrapper, skills_wrapper = self.store_backend.policy_wrapper()
@@ -256,21 +274,22 @@ class AgentExecutor:
                                                                     {
                                                                         "role": "user",
                                                                         "content": (
-                                                                                    f"Task:\n{task}\n\n"
-                                                                                    f"Relevant Context from Previous Agents:\n{content}\n\n"
-                                                                                )
+                                                                                        f"Task:\n{task}\n\n"
+                                                                                        f"Relevant Context from Previous Agents:\n{content}\n\n"
+                                                                                    )
                                                                     }
                                                                 ]
                                                 },
 
                                                 config = config,
-                                                context = ContextSchema(user_id = user_id),)
-    
-         
+                                                context = runtime.context)
             
             agent_output = result.get('structured_response')
 
-            status = result.get(agent_output.status).lower()
+            if agent_output is None:
+                 raise ValueError("Deep agent did not return structured_response")
+
+            status = result.get(agent_output.status)
 
             artifact_record = self.store_backend.store_agent_output(agent_name, user_id, agent_output )
 
@@ -349,14 +368,13 @@ class AgentExecutor:
 
     def store_tracking_after_deep_agent_execution(self, state:CustomState, runtime:Runtime):
 
-
-        print('Store_contents_post_ready_agent_execution:%s',state["ready_routes"])
+        log.info('Store_contents_post_ready_agent_execution:%s',state["ready_routes"])
 
         user_id = runtime.context.user_id
     
-        print("New_learning_updated in store", self.store_backend.read_agent_learning())
+        log.info("New_learning_updated in store", self.store_backend.read_agent_learning())
  
-        print("User_memory_updated ->", self.store_backend.read_user_personal_memory(user_id))
+        log.info("User_memory_updated ->", self.store_backend.read_user_personal_memory(user_id))
         
     async def end_node(self,state:CustomState):
         log.info("Workflow completed. Closing MCP manager.")
@@ -368,6 +386,16 @@ class AgentExecutor:
 
 
     
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -4,22 +4,25 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langchain.messages import ToolMessage
 from langgraph.types import Command
 from langchain.agents.middleware import ModelRequest,ModelResponse,ExtendedModelResponse
-from langchain.messages import ToolMessage, AIMessage
+from langchain.messages import ToolMessage
 from config.llm_config import llm_openai
 from pprint import pprint
 import json
+from app.schemas.custom_schemas import CustomState
+from pydantic import BaseModel
+from app.utilis.utilis import print_agent_output,extract_learning
+
 from langgraph.runtime import Runtime
 from langchain.tools import tool, ToolRuntime
-from app.schemas.custom_schemas import CustomState
-##from langchain.agents.middleware import before_model, after_model, AgentState, before_agent, after_agent
-from pydantic import BaseModel
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents.middleware import before_model, after_model, AgentState, before_agent, after_agent
+
 from logger.log import setup_logging
 log = setup_logging()
 
 class LearningOutput(BaseModel):
     has_learning:bool
     learning:str| None = None
+
 
 class state_Tool_Tracking(AgentMiddleware):
     
@@ -34,11 +37,11 @@ class state_Tool_Tracking(AgentMiddleware):
         print("\n")
         print("Deep_agent_state_information_before_agent \n")
         print("_"*50)
-        print("state",state)
+
         messages = state.get("messages", [])
 
         if not messages:
-            print("⚠️ before_agent: no messages in state")
+            print("Before_agent: no messages in state")
             return state
 
         message = messages[-1]
@@ -146,15 +149,24 @@ class state_Tool_Tracking(AgentMiddleware):
         print("\n")
         print("Deep_agent_state_information_after_model \n")
         print("-"*50) 
-
+         
         last_message  = state["messages"][-1]
 
-        if isinstance(last_message.content, str):
+        print("AI_RESPONSE_type:", type(last_message).__name__)
 
+        content = last_message.content
+
+        found_text = False
+        found_tool_call = False
+
+        # ---------------------------------------------------------
+        # Case 1: Normal string response
+        # ---------------------------------------------------------
+
+        if isinstance(content, str):
+            print("Last message is string")
             try:
-                print("Last message is string")
-
-                data = json.loads(last_message.content)
+                data = json.loads(content)
 
                 print("JSON_type_data",data)
 
@@ -162,54 +174,71 @@ class state_Tool_Tracking(AgentMiddleware):
                     print("JSON_type_data", data["status"])
 
             except json.JSONDecodeError:
-                print("error occured")
-                print("AI_Message", last_message.content)
 
-        else:   
-                print("AI_RESPONSE",type(last_message).__name__)
+                print("AI response:")
+                print(content)
 
-                if last_message.content:
-                        
-                    print("AI_Message ->", last_message.content)
-                else:
-                    print("AI_Message ->", "LLM called tools")
     
-  
+        # ---------------------------------------------------------
+        # Case 2: Structured content blocks
+        # ---------------------------------------------------------
+
+        if isinstance(content, list):
+
+            for block in content:
+                block_type = block.get("type")
+
+                # -----------------------------
+                # Normal AI text
+                # -----------------------------
+
+                if block["type"] == "text":
+
+                    text = block.get("text")
+                    if text:
+                        found_text = True
+                        print("AI response:")
+                        print(text)
+
+                # -----------------------------
+                # Tool call
+                # -----------------------------
+                elif block_type == "function_call":
+                     found_tool_call = True
+                     print("LLM called tool:", block.get("name"))
+
+                
+                # ---------------------------------------------
+                # Reasoning
+                # ---------------------------------------------
+
+                elif block_type == "reasoning":
+
+                    # Don't print encrypted reasoning
+                    pass
+
+        # -----------------------------------------------------
+        #  Structured response summary
+        # -----------------------------------------------------
+
+        if isinstance(content, list):
+
+            if not found_text and found_tool_call:
+
+                print("LLM called tools; " "no final text response yet.")
+
+            elif not found_text:
+
+                print("No text response in this AIMessage.")
+
+
+    # ============================================================
+    # TOKEN USAGE
+    # ============================================================
         
-        '''
-        # ============================================================
-        # TOOL CALLS
-        # ============================================================
-
-        if hasattr(last_message,"tool_calls") and last_message.tool_calls:
-            print("\n")
-            print("TOOL_CALL_DETAILS:\n")
-        
-            for tool_call in last_message.tool_calls:
-
-                print("Task_Name->",tool_call["name"])
-            
-                print("Task_Description->",tool_call["args"])
-        
-                self.execution_events.append({  "type":"tool_call",
-                                                    "tool":tool_call["name"],
-                                                    "args":tool_call["args"]
-                                                })
-        else:
-            print("No tool calls")
-        '''
-
-
-# ============================================================
-# TOKEN USAGE
-# ============================================================
-    
         print("\n")
-
         print("Token Details\n")
-
         Token_usage = getattr(last_message, "usage_metadata", None)
-
         if Token_usage:
 
             print("Input_Token_consumed ->", Token_usage["input_tokens"])  
@@ -225,14 +254,19 @@ class state_Tool_Tracking(AgentMiddleware):
 
             print("-"*50) 
             print("Input_Token_details->",Token_usage["input_token_details"])
+            print("\n")
 
         else:
             print("No token details found")
+
+        print("\n")
+        
       
       
     async def awrap_tool_call(self, request:ToolCallRequest, handler:Callable[[ToolCallRequest],  ToolMessage | Command[Any]] ) -> ToolMessage | Command[Any]:
 
         print("*"*50)
+
         print("Tool_call_request_made_by_LLM\n")
         print("*"*50)
 
@@ -260,9 +294,8 @@ class state_Tool_Tracking(AgentMiddleware):
         print("*"*50)
 
         if isinstance(response, ToolMessage):
-
-            print("Tool_content",response.name)
-            print("Tool_response \n",response.content[:100])
+            print("Tool call status ->\n",response.status)
+            print("Tool_response -> \n",response.content[:500])
 
             self.execution_events.append({  
                                             "type" : "tool_result",
@@ -281,7 +314,9 @@ class state_Tool_Tracking(AgentMiddleware):
       
     def after_agent(self,state):
 
-        print("Deep_agent_state_after_agent \n")
+        print("\n")
+        print("Deep_agent_state_after_agent")
+        print("-" * 70)
 
         #print("self_learning_Events_captured", self.execution_events)
 
@@ -289,99 +324,42 @@ class state_Tool_Tracking(AgentMiddleware):
 
         structured_response = state.get("structured_response")
 
-        print("Structured response ->", structured_response)
- 
         if structured_response is None:
-            print("⚠️ structured_response is None")
+            print("structured_response is None")
             return
-         
 
-        print("Status -> ",structured_response.status)
-
-        print("Summary ->",structured_response.summary)
-
-        print("Result -> ", structured_response.result)
-   
-
-        print("Errors\n")
-
-        pprint(structured_response.errors)
-
-        print("Metadata")
-
-        pprint(structured_response.metadata)
-
-        #print("Memory Contents \n")
+        print_agent_output(structured_response)
         
+        #print("Memory Contents \n")
         #pprint(state["memory_contents"])
 
         existing_learning = ""
+
         try:
+
             existing_learning =  self.store_backend.read_agent_learning()
-            #existing_learning += "\nWhen working on repository tasks, verify the current git branch before making changes"
+            log.info("Successfully extracted existing learning")
 
         except Exception:
             log.info("learning.MD not availabe yet")
 
-        print("Existing_learning",existing_learning)
+        learning = extract_learning(self.execution_events, existing_learning,llm_openai,LearningOutput)
+        log.info("Successfully extracted new learning")
 
-        learning = self.extract_learning(existing_learning)
-
-        print("New_Learning->\n",learning.learning)
 
         if learning.has_learning and learning.learning:
             updated_learning = f"{existing_learning}\n\n{learning.learning}"
             self.store_backend.write_learning(updated_learning)
+            log.info("New learning stored in the store")
         else:
             pass
 
-        print("New_learning_updated in store", self.store_backend.read_agent_learning())
+        #print("-"*50)
+        #print("New_learning_updated in store -> \n", self.store_backend.read_agent_learning())
+        #print("-"*50)
 
 
-    def extract_learning(self,existing_learning):
-
-        experience = self.execution_events
-
-        structured_llm = llm_openai.with_structured_output(LearningOutput, method = "function_calling")
-
-        prompt = """
-                    You analyze an agent's execution experience.
-
-                    Determine whether the experience contains a reusable lesson that could
-                    help the agent perform better in a future execution.
-
-                    A reusable lesson can be:
-                    - a mistake and how to avoid it
-                    - a failed approach and a better approach
-                    - an environment/workspace discovery that reveals a reusable
-                      pattern or constraint for future executions
-                    - a successful approach worth repeating
-                    
-                    
-                    Do not create learning from temporary execution-specific facts,
-                    such as paths, commit SHAs, repository contents, tool output,
-                    or other values that are unlikely to remain valid in future executions.
-
-
-                    Do not create a lesson if the experience contains nothing reusable.
-
-                    If the same or substantially similar lesson already exists in Existing learning,
-                    do not create a new lesson and return has_learning as false.
-
-                    If there is reusable learning, write it as a concise standalone lesson
-                    that can be added directly to LEARNINGS.md
-
-                    Execution experience:
-                    {experience}
-
-                    Existing learning:
-                    {existing_learning}
-                    """
-        learning_chain = ChatPromptTemplate.from_messages([("system",prompt)]) | structured_llm
-        result = learning_chain.invoke({"experience" : experience,"existing_learning":existing_learning})
-        return result
-
-
+    
 
 
 '''
