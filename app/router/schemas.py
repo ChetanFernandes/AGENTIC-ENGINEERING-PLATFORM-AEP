@@ -41,6 +41,7 @@ class Route(BaseModel):
     dependencies : list[str] = Field(default_factory = list) # "When no dependencies are supplied, call list() to create the default.
     # When to use default_fctory? - "Does this field need a default value, and is that default something that needs to be newly created for each instance?"
     # default_factory is about creating defaults, not about values changing from one Router call to another.
+    is_final: bool = Field( default=False, description="Whether this route produces the final user-facing answer.")
 
 class RouteDecision(BaseModel):
     routes : list[Route] # It tells Pydantic: routes must be a list, and every item in that list must be a valid Route object.

@@ -3,10 +3,19 @@ from typing import  Any
 
 class AgentOutput(BaseModel):
     status: str
-    summary: str
+    summary: str|None = None
     result: str | None  = None
     errors: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+
+
+
+class AgentExecutionResult(BaseModel):
+    execution_status: str | None = None
+    completion_reason:str |None = None
+    output:AgentOutput | None  = None
+    output_source:str | None = None
+    structured_response_missing: bool = False
 
 
     # str | None = what values are allowed

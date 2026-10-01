@@ -34,11 +34,11 @@ class RouteOrchestor:
 
                 if dependencies:
 
-                    self.agent_with_dependencies[route.route_id] = {"route_id" : route.route_id  ,"agent" : route.agent , "dependencies" : route.route_id, "task":route.task }
+                    self.agent_with_dependencies[route.route_id] = {"route_id" : route.route_id  ,"agent" : route.agent , "dependencies" : dependencies, "task":route.task, "is_final":route.is_final }
 
                 else:
 
-                    self.agent_no_dependencies[route.route_id] = {"route_id" : route.route_id , "agent" : route.agent,"task":route.task}
+                    self.agent_no_dependencies[route.route_id] = {"route_id" : route.route_id , "agent" : route.agent,"task":route.task,"is_final":route.is_final}
 
         
             log.info("Agent_with_dependencies: %s",  self.agent_with_dependencies)
@@ -81,7 +81,8 @@ class RouteOrchestor:
                                             
                                             "route_id":route["route_id"],
                                             "agent": route["agent"],  
-                                            "task": route["task"]
+                                            "task": route["task"],
+                                            "is_final":route["is_final"]
                                         }
                                         for route in self.agent_ready_to_execute
 
@@ -90,10 +91,11 @@ class RouteOrchestor:
                     }
         except Exception:
             log.exception("Orchestrator node failed")
+            raise
 
 
     def check_dependency_agent(self,dependency_routes):
-        return (all(dependency in self.route_executed for dependency in dependency_routes))
+        return (all(dependency in self.route_executed or dependency in self.route_failed for dependency in dependency_routes))
 
 
 

@@ -2,7 +2,8 @@ from app.executor.langgraph.graph import AgentExecutor
 from app.schemas.custom_schemas import RuntimeContextSchema
 from logger.log import setup_logging
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langgraph.types import Command, interrupt
+from langgraph.types import Command
+from langchain_core.messages import HumanMessage
 from config.database_config import DB_URI
 log = setup_logging()
 
@@ -12,18 +13,23 @@ class ServiceLayer:
         self.checkpointer = None
 
     async def initialize_mcp_checkpointer(self):
-        await self.agent_executor.mcp_manager.start()
+        try:
+            await self.agent_executor.mcp_manager.start()
 
-        # Start async Postgres checkpointer
-        self.agent_executor.checkpointer_context = await self.agent_executor.exit_stack.enter_async_context(AsyncPostgresSaver.from_conn_string(DB_URI))   #as creating a recipe/instruction for a database connection, not necessarily opening the connection yet.
-        #self.checkpointer = await self.checkpointer_context.__aenter__() # Open/initialize this resource and give me the actual checkpointer."
-        await self.agent_executor.checkpointer_context.setup()
-        
-        # Compile graph only after checkpointer is ready
-        self.graph = self.agent_executor.graph.compile(self.agent_executor.checkpointer_context)
+            # Start async Postgres checkpointer
+            self.agent_executor.checkpointer_context = await self.agent_executor.exit_stack.enter_async_context(AsyncPostgresSaver.from_conn_string(DB_URI))   #as creating a recipe/instruction for a database connection, not necessarily opening the connection yet.
+            #self.checkpointer = await self.checkpointer_context.__aenter__() # Open/initialize this resource and give me the actual checkpointer."
+            await self.agent_executor.checkpointer_context.setup()
+            
+            # Compile graph only after checkpointer is ready
+            self.graph = self.agent_executor.graph.compile(self.agent_executor.checkpointer_context)
 
-        self.checkpointer  = self.agent_executor.checkpointer_context
-        log.info("MCP and Postgress server started")
+            self.checkpointer  = self.agent_executor.checkpointer_context
+            log.info("MCP and Postgress server started")
+        except Exception:
+            log.exception("Error occured while initialize_mcp_checkpointer")
+            raise
+    
 
 
     async def get_payload_data(self,user_name,thread_id,question):
@@ -32,16 +38,24 @@ class ServiceLayer:
             log.info("thread_id:%s",thread_id)
             log.info("question:%s",question)
             result = await self.initialize_langgraph(user_name,thread_id,question)
-            return result
+            print("final_answer",result)
+            return result.get("final_answer","NA")
         except Exception:
-            log.exception("Error while receiving data in service layer")
+            raise
 
 
     async def initialize_langgraph(self,user_name,thread_id,question):
         try:
             runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
             config = {"configurable" : {"thread_id": thread_id}}
-            result = await self.graph.ainvoke( {"user_request":question}, config = config, context = runtime_context)
+            result = await self.graph.ainvoke( {
+                
+                                                 "user_request": question, 
+                                                 "messages" :[HumanMessage(content = question)]
+                                                },
+                                                  config = config, 
+                                                  context = runtime_context
+                                              )
 
             while "__interrupt__" in result:
 
@@ -63,12 +77,14 @@ class ServiceLayer:
                                                         ),
                                                         config = config,
                                                         context = runtime_context
-                                            )  
+                                            ) 
+
+                
 
             return result
 
         except Exception:
-            log.exception("Error while processing the request")
+            raise
 
 
 

@@ -17,8 +17,8 @@ def on_error(exc:Exception,request:ToolCallRequest) -> str|None:
 
 def tool_error_retry_middleware():
     
-    Tool_retry_error_middleware = [ ToolRetryMiddleware(max_retries=3, backoff_factor=2.0, initial_delay=2.0, max_delay=60.0, jitter=True, tools = None,
-                                                  retry_on=(ConnectionError, TimeoutError), on_failure= "error",),
+    Tool_retry_error_middleware = [ ToolRetryMiddleware(max_retries=3, backoff_factor=2.0, initial_delay=2.0, max_delay=60.0, jitter=True, 
+                                        tools = None, retry_on=(ConnectionError, TimeoutError), on_failure= "error",),
                                     
                                     ToolErrorMiddleware(on_error=on_error),]
 

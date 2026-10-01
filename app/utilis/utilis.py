@@ -9,7 +9,10 @@ from langchain.tools.tool_node import ToolCallRequest
 from langchain.agents.middleware.human_in_the_loop import InterruptOnConfig
 import json
 from langchain_core.prompts import ChatPromptTemplate
-
+from typing_extensions import Any
+from app.schemas.agent_output_schema import AgentOutput, AgentExecutionResult
+from logger.log import setup_logging
+log = setup_logging()
 
 token = os.getenv("GITHUB_ACCESS_TOKEN")
 
@@ -139,3 +142,146 @@ def extract_learning(experience, existing_learning,llm_openai,LearningOutput):
     learning_chain = ChatPromptTemplate.from_messages([("system",prompt)]) | structured_llm
     result = learning_chain.invoke({"experience" : experience,"existing_learning":existing_learning})
     return result
+
+def detect_execution_event(messages):
+    details = {}
+
+    for message in reversed(messages):
+
+        # Get the final AI response only once
+        if message.get("type") == "ai":
+            if "content" not in details:
+                details["content"] = message.get("content")
+
+        # Get tool error
+        if message.get("type") == "tool":
+            if message.get("status") == "error":
+                details["event_type"] = "tool_error"
+                details["event_message"] = message.get("content")
+
+    return details
+
+def normalize_agent_output(result:dict|Any) -> AgentOutput:
+    try:
+        # ---------------------------------------------------------
+        # CASE 1: Deep Agent returned structured_response
+        # ---------------------------------------------------------
+        structured_response = result.get("structured_response")
+
+        if isinstance(structured_response, AgentOutput):
+            return structured_response
+
+        if structured_response is not None:
+            try:
+                return AgentOutput.model_validate(structured_response)
+            except Exception:
+                log.exception("Structured response dont support the AgentOutput Schema")
+                raise
+
+        # ---------------------------------------------------------
+        # CASE 2: No structured_response
+        #         Try final AIMessage
+        # ---------------------------------------------------------
+
+        messages = result.get("messages", [])
+        if not messages:
+            return AgentOutput(
+                status="Failed",
+                summary="Agent completed without producing a response.",
+                result=None,
+                errors=["No messages returned by the agent."]
+            )
+        details = detect_execution_event(messages)
+        errors = []
+        content = details.get("content",None)
+        event_type = details.get("event_type",None)
+        event_error = details.get("event_message",None)
+        if event_type:
+            errors.append(event_type)
+        if event_error:
+            errors.append(event_error)
+                # ---------------------------------------------------------
+        # CASE 2A: content is a string
+        # ---------------------------------------------------------
+        if isinstance(content,str):
+            text = content.strip()
+            #Try JSON first
+            try:
+                parsed = json.loads(text)
+                return AgentOutput.model_validate(parsed)
+            except(json.JSONDecodeError,ValueError,TypeError):
+                pass
+
+                   # Not JSON → treat it as normal agent output
+            return AgentOutput(
+                status="Partial_Success",
+                result = text,
+                errors = errors,
+                metadata={
+                    "output_source": "ai_message_text",
+                    "structured_response_missing": True
+                }
+            )
+
+        # ---------------------------------------------------------
+        # CASE 2B: content is a list of content blocks
+        # ---------------------------------------------------------
+        if isinstance(content,list):
+            text_parts = []
+
+            for block in content:
+                if not isinstance(block,dict):
+                    continue
+
+                if block.get("type") == "text":
+                    text = block.get("text")
+                    if text:
+                        text_parts.append(text)
+            
+            text = "\n\n".join(text_parts).strip()
+            
+            if text:
+
+                # Try json
+                try:
+                    parsed = json.loads(text)
+                    return AgentOutput.model_validate(parsed)
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    pass
+
+                    return AgentOutput(
+                                status="partial_success",
+                                result = text,
+                                errors = errors,
+                                metadata={
+                                    "output_source": "ai_message_text_blocks",
+                                    "structured_response_missing": True
+                                }
+                            )
+
+        # ---------------------------------------------------------
+        # CASE 3: Nothing usable
+        # ---------------------------------------------------------
+        return AgentOutput(
+            status="failed",
+            summary="Agent did not produce a usable response.",
+            result = None,
+            errors=[
+                    "structured_response was missing and final AIMessage ",
+                    "contained no usable text.",
+                    errors
+            ],
+            metadata={"structured_response_missing": True}
+        )
+    except Exception:
+        log.exception("Error occured while normalizing agent output")
+        raise
+
+        
+            
+
+    
+
+    
+    
+    

@@ -182,7 +182,7 @@ class state_Tool_Tracking(AgentMiddleware):
         # ---------------------------------------------------------
         # Case 2: Structured content blocks
         # ---------------------------------------------------------
-
+        texts =[]
         if isinstance(content, list):
 
             for block in content:
@@ -196,10 +196,9 @@ class state_Tool_Tracking(AgentMiddleware):
 
                     text = block.get("text")
                     if text:
-                        found_text = True
-                        print("AI response:")
-                        print(text)
+                        texts.append(text)
 
+        
                 # -----------------------------
                 # Tool call
                 # -----------------------------
@@ -216,6 +215,10 @@ class state_Tool_Tracking(AgentMiddleware):
 
                     # Don't print encrypted reasoning
                     pass
+
+            if texts:
+                print("\nAI RESPONSE:")
+                print("\n".join(texts))
 
         # -----------------------------------------------------
         #  Structured response summary
@@ -313,50 +316,56 @@ class state_Tool_Tracking(AgentMiddleware):
 
       
     def after_agent(self,state):
-
-        print("\n")
-        print("Deep_agent_state_after_agent")
-        print("-" * 70)
-
-        #print("self_learning_Events_captured", self.execution_events)
-
-        print("State keys ->", state.keys())
-
-        structured_response = state.get("structured_response")
-
-        if structured_response is None:
-            print("structured_response is None")
-            return
-
-        print_agent_output(structured_response)
-        
-        #print("Memory Contents \n")
-        #pprint(state["memory_contents"])
-
-        existing_learning = ""
-
         try:
 
-            existing_learning =  self.store_backend.read_agent_learning()
-            log.info("Successfully extracted existing learning")
+            print("\n")
+            print("Deep_agent_state_after_agent")
+            print("-" * 70)
 
+            #print("self_learning_Events_captured", self.execution_events)
+
+            print("State keys ->", state.keys())
+
+            structured_response = state.get("structured_response")
+
+            if structured_response is None:
+                print("structured_response is None")
+                
+            else:
+                
+                print_agent_output(structured_response)
+            
+            #print("Memory Contents \n")
+            #pprint(state["memory_contents"])
+
+            existing_learning = ""
+
+            try:
+
+                existing_learning =  self.store_backend.read_agent_learning()
+                
+                log.info("Successfully extracted existing learning")
+
+            except Exception:
+                log.info("learning.MD not availabe yet")
+
+            learning = extract_learning(self.execution_events, existing_learning,llm_openai,LearningOutput)
+
+            log.info("Successfully extracted new learning")
+
+
+            if learning.has_learning and learning.learning:
+                updated_learning = f"{existing_learning}\n\n{learning.learning}"
+                self.store_backend.write_learning(updated_learning)
+                log.info("New learning stored in the store")
+            else:
+                pass
+
+            #print("-"*50)
+            #print("New_learning_updated in store -> \n", self.store_backend.read_agent_learning())
+            #print("-"*50)
         except Exception:
-            log.info("learning.MD not availabe yet")
-
-        learning = extract_learning(self.execution_events, existing_learning,llm_openai,LearningOutput)
-        log.info("Successfully extracted new learning")
-
-
-        if learning.has_learning and learning.learning:
-            updated_learning = f"{existing_learning}\n\n{learning.learning}"
-            self.store_backend.write_learning(updated_learning)
-            log.info("New learning stored in the store")
-        else:
-            pass
-
-        #print("-"*50)
-        #print("New_learning_updated in store -> \n", self.store_backend.read_agent_learning())
-        #print("-"*50)
+            log.exception("Error occured in after agent")
 
 
     

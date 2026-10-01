@@ -5,8 +5,28 @@ import requests
 
 BASE_URL = "http://localhost:8000"
 
-#------------------service layer------------------------
 
+def start_app():
+    try:
+
+        response = requests.get(url = f"{BASE_URL}/health")
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("status") == "running":
+            st.success("AEP Application is running")
+        else:
+            st.warning("AEP Application is not ready")
+
+    except requests.exceptions.ConnectionError:
+        st.error("AEP backend is not running")
+
+    except requests.exceptions.Timeout:
+        st.error("AEP health check timed out")
+
+    except Exception as e:
+        st.error(f" Application initialization failed: {e}")
+    
 def payload_send(user_name,thread_id,question):
     try:
         response = requests.post(url = f"{BASE_URL}/chat", json = {"user_name" : user_name, "thread_id" : thread_id , "question":question},timeout=300)
@@ -16,10 +36,7 @@ def payload_send(user_name,thread_id,question):
         st.error("Processing failed")
 
 
-st.set_page_config(
-    page_title="Agentic Engineering Platform",
-    layout="wide"
-)
+st.set_page_config(page_title="Agentic Engineering Platform", layout="wide")
 
 
 # --------------------------------------------------
@@ -87,7 +104,7 @@ with st.sidebar:
 # --------------------------------------------------
 # Main page
 # --------------------------------------------------
-
+start_app()
 st.title("Agentic Engineering Platform 🤖")
 
 

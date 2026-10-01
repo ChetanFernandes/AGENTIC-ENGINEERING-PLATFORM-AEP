@@ -80,6 +80,7 @@ class ContextManager():
             
         except Exception:
             log.exception("Build context failed")
+            raise
         
 
 

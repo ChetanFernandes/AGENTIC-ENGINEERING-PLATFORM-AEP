@@ -1,6 +1,6 @@
 from typing import TypedDict , List , Any , Annotated
 from langgraph.graph.message import add_messages
-from app.executor.langgraph.reducer import merge,merge_dicts
+from app.executor.langgraph.reducer import merge_dicts ,merge_or_reset
 from app.schemas.agent_output_schema import AgentOutput
 from dataclasses import dataclass
 from langchain.agents.middleware import AgentState
@@ -9,17 +9,15 @@ from app.router.schemas import RouteDecision
 
 class CustomState(AgentState):
 
-    #agents_outputs: Annotated[dict[str , AgentOutput] , merge]   
-    artifacts_id: Annotated[dict[str , str] , merge]  
-    #context_given_agent : Annotated[dict[str , Any] ,  merge]
+    final_answer: AgentOutput | None  
+    artifacts_id: Annotated[dict[str , str] , merge_or_reset]  
     context_given_agent : dict[str , Any]
     tool_call_details : dict[str,int]
     routing_information : RouteDecision
     user_request:str
-
     ready_routes: list[dict[str, str]]
-    successful_route_executed:Annotated[dict[str, str], merge_dicts]
-    failed_route_executed: Annotated[dict[str, str], merge_dicts]
+    successful_route_executed:Annotated[dict[str, str], merge_or_reset]
+    failed_route_executed: Annotated[dict[str, str], merge_or_reset]
 
     current_route: dict[str, str]
 
