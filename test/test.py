@@ -477,7 +477,7 @@ result = {
       "name": "read_file",
       "id": "2df52079-63c8-45b4-9f6f-6bb0c82f6230",
       "tool_call_id": "call_7xo22O6OLpghMhwhNhEfuZzJ",
-      "status": "noerror"
+      "status": "error"
     },
     {
       "content": [

@@ -1,5 +1,5 @@
 from app.schemas.custom_schemas import CustomState 
-from app.schemas.agent_output_schema import AgentOutput, AgentExecutionResult
+from app.schemas.agent_output_schema import AgentOutput
 from langgraph.graph import StateGraph, START , END 
 from app.executor.context_management.context_manager import ContextManager
 from config.llm_config import llm_openai
@@ -96,7 +96,7 @@ class AgentExecutor:
             self.graph.add_edge("deep_agent_executor","fan_in_routes")
             self.graph.add_edge("fan_in_routes","state_tracking_after_deep_agent_execution")
             self.graph.add_edge("state_tracking_after_deep_agent_execution","store_tracking_after_deep_agent_execution")
-            self.graph.add_edge("store_tracking_after_deep_agent_execution","orchestrator")
+            self.graph.add_edge("store_tracking_after_deep_agent_execution", "orchestrator")
             self.graph.add_edge("end_node", END)
 
 
@@ -114,12 +114,11 @@ class AgentExecutor:
         raise
 
 
-    def format_previous_question(self,messages,current_question):
+    def format_previous_question(self,previous_messages:list,current_question):
         requests = []
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                if message.content != current_question:
-                    requests.append(message.content)
+        for message in previous_messages:
+            if message != current_question:
+                    requests.append(message)
 
         return "\n\n".join(f"previous_requests: {i+1}: {message}" for i, message in enumerate(requests))
 
@@ -127,14 +126,29 @@ class AgentExecutor:
         try:
 
             log.info("user_id:%s",runtime.context.user_id)
-            log.info("checkpointer:%s",runtime.context.checkpointer)
-            log.info("backend:%s",runtime.context.backend)
             log.info("thread_id:%s",config["configurable"].get("thread_id","NA"))
             
-            current_question = state["user_request"]
-            previous_question = state.get("messages", [])
+            current_question = state["user_request"].strip()
 
-            previous_questions = self.format_previous_question(previous_question,current_question)
+            log.info("user_request:%s",current_question)
+
+            previous_questions = state.get("messages", [])
+            log.info("previous_question:%s",previous_questions)
+
+            if previous_questions:
+                previous_accumulated_questions = []
+                for message in previous_questions:
+                    if isinstance(message, HumanMessage):
+                        content = message.content.strip()
+
+                        if content != current_question:
+                            previous_accumulated_questions.append(content)
+
+            log.info("previous_accumulated_questions:%s\n",previous_accumulated_questions)
+            log.info("Length of previous questions:%s", len(previous_accumulated_questions))
+
+            formatted_questions = self.format_previous_question(previous_accumulated_questions, current_question)
+            log.info("Formatted_question:%s",formatted_questions)
 
             chat_template = ChatPromptTemplate.from_messages([
                                                         ("system", ROUTER_SYSTEM_PROMPT), 
@@ -150,7 +164,7 @@ class AgentExecutor:
 
             router_chain = chat_template | structured_llm
 
-            routing_information = await router_chain.ainvoke({"previous_questions": previous_questions, "user_request": question})
+            routing_information = await router_chain.ainvoke({"previous_questions": formatted_questions, "user_request": current_question})
         
             return {
                             "routing_information": routing_information,
@@ -160,6 +174,7 @@ class AgentExecutor:
                             "context_given_agent": {},
                             "ready_routes": [],
                             "final_answer": None,
+                            "user_request": current_question
                     }
         
         except Exception:
@@ -196,9 +211,9 @@ class AgentExecutor:
 
             # asyncio.gather() collects all those returned values into a list.
 
-            for agent_name , result in results:
+            #for agent_name , result in results:
 
-                log.info("Details gathered for :%s , :%s", agent_name , result)
+                #log.info("Details gathered for :%s , :%s", agent_name , result)
 
             context_given_agent = dict(results)
 
@@ -218,10 +233,6 @@ class AgentExecutor:
             log.info("Ready Routes -> %s", state.get("ready_routes", []))
             log.info("Context_given_agent ->%s ", state.get("context_given_agent", {}))
 
-            log.info("Agent -> %s", state.get("agent", "NA"))
-            log.info("Route_id -> %s", state.get("route_id", "NA"))
-            log.info("Task -> %s", state.get("task", "NA"))
-
             return {}
         except Exception:
             log.exception("Error occured during execution of state_tracking_before_deep_agent_execution_node")
@@ -238,7 +249,8 @@ class AgentExecutor:
 
                             {  
                                 "current_route": route,
-                                "context_given_agent": state.get("context_given_agent",{})
+                                "context_given_agent": state.get("context_given_agent",{}),
+                                "user_question" : state.get("user_request")
                             
                             }
                         )
@@ -261,15 +273,17 @@ class AgentExecutor:
             route_is_final = current_route.get("is_final", False)
 
             content = state["context_given_agent"].get(agent_name,{})
-            user_question = state.get("user_request")
+
+            user_question = state.get("user_question")
 
 
             log.info("Deep_agent_is_executing_agent -> %s", agent_name)
             log.info("Task for agent is->%s",task)
             log.info("Route_id->%s",route_id)
             log.info("Context given is -> %s",content)
+  
+    
 
-            
             user_id = runtime.context.user_id
 
             user_memory_file = f"/memories/personal/{user_id}_USER_MEMORY.md"
@@ -316,12 +330,12 @@ class AgentExecutor:
                                             system_prompt = system_prompt, 
                                             response_format=AgentOutput, 
                                             middleware=[state_Tool_Tracking(store = self.store_backend.return_store(), backend = self.store_backend), 
-                                                                            *tool_error_retry_middleware(),
-                                                                            model_error_middleware(),
+                                                                            #*tool_error_retry_middleware(),
+                                                                            #model_error_middleware(),
                                                                             create_summarization_middleware(self.sandbox_backend),
-                                                                            model_call_limit_middleware(),
-                                                                            tool_call_limit_middleware(),
-                                                                            context_editing_middleware(),
+                                                                            #model_call_limit_middleware(),
+                                                                            #tool_call_limit_middleware(),
+                                                                            #context_editing_middleware(),
                                                                             #ProviderToolSearchMiddleware(searchable_tools = searchable_tools),
                                                                             HumanInTheLoopMiddleware(interrupt_on = self.interrupt_on)], 
                                             subagents = [sub_agent_caller()],
@@ -364,7 +378,7 @@ class AgentExecutor:
                 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "successful_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 
-            elif route_is_final and status in ("partial_success", "failed"):
+            elif route_is_final and status in ("partial","partial_success", "failed","blocked"):
 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "failed_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 
@@ -427,13 +441,11 @@ class AgentExecutor:
     def state_tracking_after_deep_agent_execution(self, state: CustomState):
         try:
 
-            ready_route = state["ready_routes"]
-
             log.info("State_Tracking_post_execution_of_ready_agents")
 
             if state:
 
-                log.info("user_message_history -> %s", state.get("message", "NA"))
+                log.info("user_message_history -> %s", state.get("messages", "NA"))
                 
                 log.info("ready_routes -> %s", state.get("ready_routes", "NA"))
 
@@ -448,6 +460,8 @@ class AgentExecutor:
                 log.info("routing_information ->%s ",state.get("routing_information", "NA"))
 
                 log.info("user_request -> %s", state.get("user_request", "NA"))
+
+                log.info("final_answer -> %s", state.get("final_answer", "NA"))
 
         except Exception:
             log.exception("Error occured during execution of node state_tracking_after_deep_agent_execution")
@@ -468,12 +482,11 @@ class AgentExecutor:
         except Exception:
             log.exception("Error occured during execution of node store_tracking_after_deep_agent_execution")
             raise
-        
-        
+ 
     async def end_node(self,state:CustomState):
         try:
             log.info("Workflow completed. Closing MCP manager.")
-            #await self.mcp_manager.close()
+            await self.mcp_manager.close()
             return {}
         except Exception:
             log.exception("Error occured during execution of end_node")

@@ -140,7 +140,7 @@ async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
             except Exception as e:
 
                 print(
-                f"⚠️ Failed to retrieve historical artifact "
+                f"Failed to retrieve historical artifact "
                 f"{artifact_id}: {e}"
             )
                 continue

@@ -1,14 +1,14 @@
 from langchain_core.prompts import ChatPromptTemplate
-from config.llm_config import llm_openai
+from config.llm_config import llm_openai_mini
 from pydantic import BaseModel , Field
 from logger.log import setup_logging
 log = setup_logging()
 from typing import Any
 
 class SelectedSourceContext(BaseModel):
-    status: str
-    summary: str
-    errors: list[str]
+    status: str | None = None
+    summary: str | None = None
+    errors: list[str] = Field(default_factory=list)
     relevant_details: str | None = None
 
 class LLMOutput(BaseModel):
@@ -45,7 +45,7 @@ class ContextRelevanceSelector:
                 source_2 - {source_2}
         '''
         
-        structured_llm = llm_openai.with_structured_output(LLMOutput, method="function_calling")
+        structured_llm = llm_openai_mini.with_structured_output(LLMOutput, method="function_calling")
 
         template = ChatPromptTemplate.from_messages([ ("system", system_prompt) , 
                                                       ("human" , "Task: {task}\n source_1: {source_1},  source_2: {source_2}")

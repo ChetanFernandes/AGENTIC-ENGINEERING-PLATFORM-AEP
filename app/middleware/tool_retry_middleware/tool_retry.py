@@ -38,7 +38,7 @@ def model_error_middleware():
 
 def model_call_limit_middleware():
 
-    model_call_limit_middleware_ = ModelCallLimitMiddleware(thread_limit = 20, run_limit = 8, exit_behavior= "error",) 
+    model_call_limit_middleware_ = ModelCallLimitMiddleware(thread_limit = 20, run_limit = 20, exit_behavior= "error",) 
 
     return model_call_limit_middleware_
 
@@ -46,6 +46,6 @@ def model_call_limit_middleware():
 
 def tool_call_limit_middleware():
 
-    tool_call_limit_middleware_ = ToolCallLimitMiddleware(thread_limit = 20, run_limit = 8, exit_behavior= "continue",) 
+    tool_call_limit_middleware_ = ToolCallLimitMiddleware(thread_limit = 20, run_limit = 15, exit_behavior= "continue",) 
 
     return tool_call_limit_middleware_

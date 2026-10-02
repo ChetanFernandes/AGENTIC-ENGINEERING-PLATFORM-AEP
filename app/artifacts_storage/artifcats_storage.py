@@ -45,7 +45,9 @@ class ArtifactStorage(Artifacts_Storage):
             #return data.read()
 
     def get_from_blob(self,storage_key,blob_storage:BlobStorage):
+        print("C: entered get_from_blob")
         return blob_storage.read_file(storage_key)
+   
    
 
 

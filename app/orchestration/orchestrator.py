@@ -18,13 +18,13 @@ class RouteOrchestor:
         try:
             route_decision = state["routing_information"]
 
-            self.route_executed = state.get("successful_route_executed","NA")
+            self.route_executed = state.get("successful_route_executed",{})
 
-            self.route_failed = state.get("failed_route_executed",'NA')
+            self.route_failed = state.get("failed_route_executed",{})
 
             log.info("Agent route executed successfully %s",  self.route_executed)
-            log.info("Agent route failed or blokced %s",    self.route_failed)
 
+            log.info("Agent route failed or blokced %s",    self.route_failed)
 
             log.info("Routing_Decision:%s", route_decision.routes)
 
@@ -69,6 +69,7 @@ class RouteOrchestor:
                  return {"ready_routes": []}
             
             if not self.agent_ready_to_execute:
+                log.error("No agents are ready, but workflow is not complete")
                 raise RuntimeError("No agents are ready, but workflow is not complete")
 
             # Execute ALL ready agents

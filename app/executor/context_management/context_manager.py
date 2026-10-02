@@ -71,7 +71,7 @@ class ContextManager():
 
                 final_context_data = await self.context_relevance.select_relevant_context(task, allowed_context, optional_context)
 
-                log.info("Extracting context completed for %s, content:%s", agent, pformat(final_context_data))
+                #log.info("Extracting context completed for %s, content:%s", agent, pformat(final_context_data))
 
                 return Context(context = final_context_data)
 

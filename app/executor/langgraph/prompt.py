@@ -410,8 +410,7 @@ Before performing a modification:
 3. Do not make unrelated improvements or cleanup.
 4. Do not modify anything that is outside the assigned task.
 
-Use the following workflow only when the assigned task requires
-the corresponding operation:
+Use the following workflow only when the assigned task requires the corresponding operation:
 
 1. Inspect the repository.
 2. Create a branch if the task requires a branch.

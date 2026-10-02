@@ -30,11 +30,13 @@ class backend:
         key =  "/AGENTS.md"
         path = Path(r"app/executor/langgraph/AGENTS.md")
         item = self.store.get(namespace_memory,key)
-        #self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
+        self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
+        '''
         if not item:
             self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
         else:
             pass
+        '''
       
         # check for Learnings
         key =  "/LEARNINGS.md"
@@ -90,8 +92,19 @@ class backend:
             return None
         
         #data = self.artifact_storage.get_local(storage_key)
+
+        print("1. Before get_from_blob")
+        print("storage_key:", storage_key)
+        print("blob_storage:", self.blob_storage)
         
         data = await asyncio.to_thread(self.artifact_storage.get_from_blob, storage_key, self.blob_storage)
+
+        print("2. After get_from_blob")
+        print("data type:", type(data))
+        print("data length:", len(data) if data else None)
+
+        print("3. Before model_validate_json")
+
 
         return AgentOutput.model_validate_json(data) # Convert to object AgentOutput
 

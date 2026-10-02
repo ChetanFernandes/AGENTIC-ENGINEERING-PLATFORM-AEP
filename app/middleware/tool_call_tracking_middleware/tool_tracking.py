@@ -4,17 +4,17 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langchain.messages import ToolMessage
 from langgraph.types import Command
 from langchain.agents.middleware import ModelRequest,ModelResponse,ExtendedModelResponse
-from langchain.messages import ToolMessage
-from config.llm_config import llm_openai
+from langchain.messages import ToolMessage,AIMessage
+from config.llm_config import llm_openai_mini
 from pprint import pprint
 import json
 from app.schemas.custom_schemas import CustomState
 from pydantic import BaseModel
-from app.utilis.utilis import print_agent_output,extract_learning
+from app.utilis.utilis import extract_learning
 
 from langgraph.runtime import Runtime
 from langchain.tools import tool, ToolRuntime
-from langchain.agents.middleware import before_model, after_model, AgentState, before_agent, after_agent
+#from langchain.agents.middleware import before_model, after_model, AgentState, before_agent, after_agent
 
 from logger.log import setup_logging
 log = setup_logging()
@@ -39,7 +39,6 @@ class state_Tool_Tracking(AgentMiddleware):
         print("_"*50)
 
         messages = state.get("messages", [])
-
         if not messages:
             print("Before_agent: no messages in state")
             return state
@@ -152,87 +151,85 @@ class state_Tool_Tracking(AgentMiddleware):
          
         last_message  = state["messages"][-1]
 
-        print("AI_RESPONSE_type:", type(last_message).__name__)
-
-        content = last_message.content
-
-        found_text = False
-        found_tool_call = False
-
-        # ---------------------------------------------------------
-        # Case 1: Normal string response
-        # ---------------------------------------------------------
-
-        if isinstance(content, str):
-            print("Last message is string")
-            try:
-                data = json.loads(content)
-
-                print("JSON_type_data",data)
-
-                if "status" in data:
-                    print("JSON_type_data", data["status"])
-
-            except json.JSONDecodeError:
-
-                print("AI response:")
-                print(content)
+        print("RESPONSE_type:", type(last_message).__name__)
 
     
         # ---------------------------------------------------------
-        # Case 2: Structured content blocks
+        # Case 1: ToolMessage
         # ---------------------------------------------------------
-        texts =[]
-        if isinstance(content, list):
+        if isinstance(last_message, ToolMessage):
+            print("Message is ToolMessage")
+            print("\nTOOL MESSAGE CONTENT:")
+            print(last_message.content)
+            print("-" * 50)
 
-            for block in content:
-                block_type = block.get("type")
+        # ============================================================
+        # CASE 2: AIMessage
+        # ============================================================
+        elif isinstance(last_message,AIMessage):
+            print("Message is AIMessage")
+            content = last_message.content
+            # --------------------------------------------------------
+            # AIMessage -> string
+            # --------------------------------------------------------
+            if isinstance(content,str):
+                print("AIMessage content is string")
+                try:
+                    data = json.loads(content)
 
-                # -----------------------------
-                # Normal AI text
-                # -----------------------------
+                    print("JSON_type_data")
+                    print(data)
 
-                if block["type"] == "text":
+                except json.JSONDecodeError:
 
-                    text = block.get("text")
-                    if text:
-                        texts.append(text)
+                    print("\nAI RESPONSE:")
+                    print(content)
 
-        
-                # -----------------------------
-                # Tool call
-                # -----------------------------
-                elif block_type == "function_call":
-                     found_tool_call = True
-                     print("LLM called tool:", block.get("name"))
+     
+        # --------------------------------------------------------
+        # AIMessage -> content blocks
+        # --------------------------------------------------------
+            elif isinstance(content,list):
+                texts = []
+                found_tool_call = False
+                for block in content:
+                    block_type = block.get("type")
+                    if block_type == "text":
+                        text = block.get("text")
+                        if text:
+                            texts.append(text)
 
-                
-                # ---------------------------------------------
-                # Reasoning
-                # ---------------------------------------------
+                    elif block_type == "function_call":
+                        found_tool_call = True
+                        print("LLM called tool:", block.get("name"))
 
-                elif block_type == "reasoning":
-
-                    # Don't print encrypted reasoning
-                    pass
-
+                    elif block_type == "reasoning":
+                        pass
             if texts:
-                print("\nAI RESPONSE:")
+                print("\n AI Response \n")
                 print("\n".join(texts))
 
-        # -----------------------------------------------------
-        #  Structured response summary
-        # -----------------------------------------------------
+            if found_tool_call:
+                print("\nLLM called tool(s)")
 
-        if isinstance(content, list):
+            if not texts and not found_tool_call:
 
-            if not found_text and found_tool_call:
+                print("\nNo text or tool call found in AIMessage.")
 
-                print("LLM called tools; " "no final text response yet.")
+        
+        # ============================================================
+        # UNKNOWN MESSAGE TYPE
+        # ============================================================
 
-            elif not found_text:
+        else:
 
-                print("No text response in this AIMessage.")
+            print("Unhandled message type:",
+                type(last_message).__name__
+            )
+
+            print("Content:")
+            print(last_message.content)
+
 
 
     # ============================================================
@@ -241,29 +238,24 @@ class state_Tool_Tracking(AgentMiddleware):
         
         print("\n")
         print("Token Details\n")
-        Token_usage = getattr(last_message, "usage_metadata", None)
-        if Token_usage:
+        token_usage = getattr(last_message, "usage_metadata", None)
+        if token_usage:
 
-            print("Input_Token_consumed ->", Token_usage["input_tokens"])  
-            print("-"*50)    
+            print("Input_Token_consumed ->", token_usage.get("input_tokens"))
 
-            print("Output_Token_consumed ->",Token_usage["output_tokens"])
-            print("-"*50)  
+            print("Output_Token_consumed ->", token_usage.get("output_tokens"))
 
-            print("Total_Token_consumed->",Token_usage["total_tokens"])
-            print("-"*50) 
+            print("Total_Token_consumed ->", token_usage.get("total_tokens"))
 
-            print("Output_Token_details->",Token_usage["output_token_details"])
+            print("Output_Token_details ->", token_usage.get("output_token_details"))
 
-            print("-"*50) 
-            print("Input_Token_details->",Token_usage["input_token_details"])
-            print("\n")
+            print("Input_Token_details ->",token_usage.get("input_token_details"))
 
         else:
             print("No token details found")
 
         print("\n")
-        
+            
       
       
     async def awrap_tool_call(self, request:ToolCallRequest, handler:Callable[[ToolCallRequest],  ToolMessage | Command[Any]] ) -> ToolMessage | Command[Any]:
@@ -297,75 +289,74 @@ class state_Tool_Tracking(AgentMiddleware):
         print("*"*50)
 
         if isinstance(response, ToolMessage):
-            print("Tool call status ->\n",response.status)
-            print("Tool_response -> \n",response.content[:500])
-
+            print("Tool call status ->",response.status)
+            print("Tool_response -> \n",str(response.content[:500]))
+        
             self.execution_events.append({  
                                             "type" : "tool_result",
-                                            "tool":   response.name,
+                                            "tool":   response.name or request.tool_call["name"],
+                                            "status": response.status,
                                             "result": response.content
                                         })
         else:
-              self.execution_events.append({
-                "type": "tool_result",
-                "tool": request.tool_call["name"],
-                "result":  repr(response)
-            })
+            self.execution_events.append({
+            "type": "tool_result",
+            "tool": request.tool_call["name"],
+            "status": "unknown",
+            "result": repr(response)
+        })
 
         return response
 
       
-    def after_agent(self,state):
+    def after_agent(self,state:CustomState):
         try:
 
             print("\n")
             print("Deep_agent_state_after_agent")
             print("-" * 70)
 
-            #print("self_learning_Events_captured", self.execution_events)
-
-            print("State keys ->", state.keys())
-
-            structured_response = state.get("structured_response")
-
-            if structured_response is None:
-                print("structured_response is None")
-                
-            else:
-                
-                print_agent_output(structured_response)
-            
-            #print("Memory Contents \n")
-            #pprint(state["memory_contents"])
-
             existing_learning = ""
 
             try:
 
                 existing_learning =  self.store_backend.read_agent_learning()
+                if existing_learning is None:
+                    existing_learning = ""
                 
                 log.info("Successfully extracted existing learning")
+
+            except FileNotFoundError:
+                log.info("LEARNINGS.md not available yet")
 
             except Exception:
                 log.info("learning.MD not availabe yet")
 
-            learning = extract_learning(self.execution_events, existing_learning,llm_openai,LearningOutput)
-
+     
+            learning = extract_learning(self.execution_events, existing_learning, llm_openai_mini, LearningOutput)
             log.info("Successfully extracted new learning")
 
+            log.info("Learning extraction completed")
 
             if learning.has_learning and learning.learning:
-                updated_learning = f"{existing_learning}\n\n{learning.learning}"
+
+                new_learning = learning.learning.strip()
+
+                if existing_learning.strip():
+                    updated_learning = (
+                                    f"{existing_learning.rstrip()}\n\n{new_learning}")
+                else:
+                    updated_learning = new_learning
+
+                log.info("Updating new learning stored in the store")
                 self.store_backend.write_learning(updated_learning)
                 log.info("New learning stored in the store")
             else:
                 pass
 
-            #print("-"*50)
-            #print("New_learning_updated in store -> \n", self.store_backend.read_agent_learning())
-            #print("-"*50)
         except Exception:
             log.exception("Error occured in after agent")
+         
 
 
     

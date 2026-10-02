@@ -10,7 +10,8 @@ from langchain.agents.middleware.human_in_the_loop import InterruptOnConfig
 import json
 from langchain_core.prompts import ChatPromptTemplate
 from typing_extensions import Any
-from app.schemas.agent_output_schema import AgentOutput, AgentExecutionResult
+from app.schemas.agent_output_schema import AgentOutput
+from langchain_core.messages import AIMessage, ToolMessage
 from logger.log import setup_logging
 log = setup_logging()
 
@@ -109,55 +110,86 @@ def extract_learning(experience, existing_learning,llm_openai,LearningOutput):
     prompt = """
                 You analyze an agent's execution experience.
 
-                Determine whether the experience contains a reusable lesson that could
-                help the agent perform better in a future execution.
+                Determine whether the experience contains a genuinely reusable lesson
+                that could help an agent perform better in a future execution.
 
                 A reusable lesson can be:
+
                 - a mistake and how to avoid it
                 - a failed approach and a better approach
-                - an environment/workspace discovery that reveals a reusable
-                    pattern or constraint for future executions
-                - a successful approach worth repeating
-                
-                
-                Do not create learning from temporary execution-specific facts,
-                such as paths, commit SHAs, repository contents, tool output,
-                or other values that are unlikely to remain valid in future executions.
+                - a stable, reusable tool/environment/workspace constraint
+                - a reusable procedure or pattern discovered during execution
+                - a successful approach that is broadly reusable in future executions
 
+                A learning must describe a reusable rule, pattern, constraint, mistake,
+                or procedure — not merely report what happened during this execution.
 
-                Do not create a lesson if the experience contains nothing reusable.
+                Do NOT create learning from temporary execution-specific facts such as:
 
-                If the same or substantially similar lesson already exists in Existing learning,
-                do not create a new lesson and return has_learning as false.
+                - file paths
+                - commit SHAs
+                - branch names
+                - repository contents
+                - tool output
+                - logs
+                - execution results
+                - temporary state
+                - task-specific values
+                - artifacts
 
-                If there is reusable learning, write it as a concise standalone lesson
-                that can be added directly to LEARNINGS.md
+                Do not create a lesson merely because an execution was successful
+                or produced an interesting result.
+
+                If the experience contains no genuinely reusable information,
+                return has_learning=false.
+
+                If the same or substantially similar lesson already exists in
+                Existing learning, return has_learning=false.
+
+                Do not create a new lesson that merely restates, slightly rephrases,
+                or narrows an existing general lesson unless it adds meaningfully
+                new reusable information.
+
+                If reusable learning exists, write it as a concise standalone lesson
+                that can be added directly to LEARNINGS.md.
 
                 Execution experience:
                 {experience}
 
                 Existing learning:
                 {existing_learning}
+
+               
                 """
     learning_chain = ChatPromptTemplate.from_messages([("system",prompt)]) | structured_llm
     result = learning_chain.invoke({"experience" : experience,"existing_learning":existing_learning})
     return result
 
 def detect_execution_event(messages):
-    details = {}
-
+    details = {"content": None, "tool_errors": []}
     for message in reversed(messages):
+     
+        if isinstance(message,AIMessage):
+            content = message.content
+            if details["content"] is None:
+                details["content"] = content
 
-        # Get the final AI response only once
-        if message.get("type") == "ai":
-            if "content" not in details:
-                details["content"] = message.get("content")
 
-        # Get tool error
-        if message.get("type") == "tool":
-            if message.get("status") == "error":
-                details["event_type"] = "tool_error"
-                details["event_message"] = message.get("content")
+        if isinstance(message,ToolMessage):
+            if message.status == "error":
+                content = message.content
+                
+                if isinstance(content, str):
+                    details["tool_errors"].append(content)
+                elif isinstance(content, list):
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") == "text":
+                            text = block.get("text")
+                            if text:
+                                details["tool_errors"].append(text)
+
 
     return details
 
@@ -169,6 +201,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
         structured_response = result.get("structured_response")
 
         if isinstance(structured_response, AgentOutput):
+            log.info("Agent returned output in structured response format")
             return structured_response
 
         if structured_response is not None:
@@ -184,6 +217,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
         # ---------------------------------------------------------
 
         messages = result.get("messages", [])
+
         if not messages:
             return AgentOutput(
                 status="Failed",
@@ -191,19 +225,26 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
                 result=None,
                 errors=["No messages returned by the agent."]
             )
+
+        
+        log.info("Agent gave output in terms of messages:%s",messages)
+        
         details = detect_execution_event(messages)
+
         errors = []
+
         content = details.get("content",None)
-        event_type = details.get("event_type",None)
-        event_error = details.get("event_message",None)
-        if event_type:
-            errors.append(event_type)
-        if event_error:
-            errors.append(event_error)
-                # ---------------------------------------------------------
+
+        tool_errors = details.get("tool_errors",None)
+
+        if tool_errors:
+            errors.extend(tool_errors)
+        
+        # ---------------------------------------------------------
         # CASE 2A: content is a string
         # ---------------------------------------------------------
         if isinstance(content,str):
+            log.info("Agent returned output in form of string")
             text = content.strip()
             #Try JSON first
             try:
@@ -227,6 +268,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
         # CASE 2B: content is a list of content blocks
         # ---------------------------------------------------------
         if isinstance(content,list):
+            log.info("Agent returned output in form of list")
             text_parts = []
 
             for block in content:
@@ -267,9 +309,8 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
             summary="Agent did not produce a usable response.",
             result = None,
             errors=[
-                    "structured_response was missing and final AIMessage ",
-                    "contained no usable text.",
-                    errors
+                    "structured_response was missing and final AIMessage contained no usable text.",
+                    *errors
             ],
             metadata={"structured_response_missing": True}
         )

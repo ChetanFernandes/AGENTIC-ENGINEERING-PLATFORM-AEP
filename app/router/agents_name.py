@@ -1,67 +1,147 @@
 SPECIALIST_AGENTS = {
-    "repository": 
-    """
-        Repository discovery and access.
-        Retrieves source code, project structure, dependencies,
-        configuration, CI/CD, deployment manifests, IaC and
-        prepares the environment required for downstream analysis.
+
+    "repository": """
+        Repository discovery, access, and repository-level operations.
+
+        Owns:
+        - repository discovery and access
+        - project structure and repository metadata
+        - source-code retrieval
+        - dependencies and configuration discovery
+        - CI/CD, deployment manifests, and IaC discovery
+        - repository-level documentation
+        - repository-level configuration and setup
+
+        May create or modify repository-level files when that is
+        the requested outcome.
+
+        Examples:
+        - inspect repository structure
+        - check whether README.md exists
+        - create or update README.md
+        - inspect CI/CD configuration
+        - inspect deployment manifests
+        - prepare repository context for downstream agents
     """,
 
-    "architecture": 
-    """
+    "architecture": """
         Architecture and system-design analysis.
-        Reviews components, data flows, trust boundaries,
-        integrations, scalability, reliability and design-level risks.
+
+        Owns:
+        - component architecture
+        - system design
+        - data flows
+        - trust boundaries
+        - integrations
+        - scalability
+        - reliability
+        - architecture-level risks
     """,
 
-    "security": 
-    """
+    "security": """
         Security analysis.
-        Performs threat modeling, SAST, SCA/dependency analysis,
-        secret detection, configuration security and vulnerability assessment.
+
+        Owns:
+        - threat modeling
+        - SAST
+        - SCA/dependency analysis
+        - secret detection
+        - configuration security
+        - vulnerability identification
+        - security risk assessment
     """,
 
-    "performance": 
-    """
+    "performance": """
         Performance analysis.
-        Identifies CPU, memory, I/O, database, network and
-        concurrency bottlenecks and recommends performance improvements.
+
+        Owns:
+        - CPU bottlenecks
+        - memory bottlenecks
+        - I/O bottlenecks
+        - database bottlenecks
+        - network bottlenecks
+        - concurrency bottlenecks
+        - performance analysis and recommendations
     """,
 
     "code_engineering": """
-        Code remediation and implementation.
-        Implements concrete fixes, patches, dependency upgrades,
-        secure code changes and produces testable code/PRs.
+        Code implementation and remediation.
+
+        Owns:
+        - application/source-code changes
+        - bug fixes
+        - concrete remediation
+        - dependency upgrades
+        - secure code changes
+        - implementation of validated findings
+        - code changes required to satisfy the user's request
+        - producing testable code or PRs
+
+        Do not select this specialist merely because a repository file
+        must be created, modified, committed, or pushed.
+
+        Repository-level documentation, setup, or configuration belongs
+        to the repository specialist when that is the requested outcome.
     """,
 
     "code_review": """
-        Manual code review.
-        Examines code quality, correctness, maintainability,
-        security-sensitive logic and engineering best practices.
+        Code review and code-quality analysis.
+
+        Owns:
+        - correctness review
+        - maintainability review
+        - code quality
+        - engineering best practices
+        - security-sensitive logic review
+
     """,
 
     "testing": """
         Testing and validation.
-        Executes appropriate automated, integration, regression,
-        dynamic, security or other tests required by the task.
+
+        Owns:
+        - unit testing
+        - integration testing
+        - regression testing
+        - dynamic testing
+        - security testing
+        - validation of implemented changes
+
     """,
 
     "Jira": """
         Engineering workflow and Jira management.
-        Creates Jira issues based on
-        validated findings and remediation work.
+
+        Owns:
+        - creating Jira issues
+        - updating Jira issues
+        - managing engineering workflow based on validated findings
+          and explicitly requested remediation work
+
     """,
 
     "optimization": """
-        Code/system optimization.
-        Identifies opportunities to improve efficiency,
-        resource utilization, algorithms, queries and implementation.
-    """,
+        Code and system optimization.
+
+       Owns:
+        - algorithm optimization
+        - query optimization
+        - resource utilization improvements
+        - implementation efficiency
+        - system efficiency improvements
+        - performance-oriented optimization
+        """,
 
     "refactoring": """
-        Refactoring.
-        Proposes or implements structural improvements that
-        improve maintainability, modularity, readability and code quality
-        without changing intended behavior.
+        Structural code refactoring.
+
+        Owns:
+        - improving modularity
+        - improving readability
+        - improving maintainability
+        - restructuring code
+        - reducing unnecessary complexity
+
+      Primary goal is structural improvement while preserving intended behavior.
     """
 }

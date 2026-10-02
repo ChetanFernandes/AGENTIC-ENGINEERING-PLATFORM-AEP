@@ -34,11 +34,7 @@ class ServiceLayer:
 
     async def get_payload_data(self,user_name,thread_id,question):
         try:
-            log.info("user_name:%s",user_name)
-            log.info("thread_id:%s",thread_id)
-            log.info("question:%s",question)
             result = await self.initialize_langgraph(user_name,thread_id,question)
-            print("final_answer",result)
             return result.get("final_answer","NA")
         except Exception:
             raise
@@ -48,6 +44,8 @@ class ServiceLayer:
         try:
             runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
             config = {"configurable" : {"thread_id": thread_id}}
+            log.info("QUESTION RECEIVED BY API: %s", question)
+            log.info("========== BEFORE GRAPH AINVOKE ==========")
             result = await self.graph.ainvoke( {
                 
                                                  "user_request": question, 
@@ -68,7 +66,7 @@ class ServiceLayer:
                 decision = input("Do you want to approve or reject this tool call? ").strip().lower()
                     
                 if decision in ["approve","reject"]:
-                    result = await self.agent_executor.graph.ainvoke(  
+                    result = await self.graph.ainvoke(  
                                                         Command(resume={
                                                                 "decisions": [
                                                                     {"type": decision} #"reject"
@@ -80,7 +78,12 @@ class ServiceLayer:
                                             ) 
 
                 
-
+            log.info("========== AFTER GRAPH AINVOKE ==========")
+            log.info("Graph result type: %s", type(result))
+            log.info(
+                "Graph result keys: %s",
+                result.keys() if isinstance(result, dict) else None
+            )
             return result
 
         except Exception:

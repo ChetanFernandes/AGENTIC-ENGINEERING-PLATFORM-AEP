@@ -10,14 +10,6 @@ class AgentOutput(BaseModel):
 
 
 
-class AgentExecutionResult(BaseModel):
-    execution_status: str | None = None
-    completion_reason:str |None = None
-    output:AgentOutput | None  = None
-    output_source:str | None = None
-    structured_response_missing: bool = False
-
-
     # str | None = what values are allowed
     # So both are valid:
     # artifact_id = "artifact-123"   # string
