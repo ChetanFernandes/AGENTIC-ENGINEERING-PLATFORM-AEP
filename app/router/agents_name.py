@@ -12,8 +12,7 @@ SPECIALIST_AGENTS = {
         - repository-level documentation
         - repository-level configuration and setup
 
-        May create or modify repository-level files when that is
-        the requested outcome.
+        May create or modify repository-level files when that is the requested outcome.
 
         Examples:
         - inspect repository structure

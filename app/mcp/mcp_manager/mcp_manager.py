@@ -5,16 +5,17 @@ from dotenv import load_dotenv
 load_dotenv()
 from dataclasses import dataclass
 from fastmcp import Client
-
-
 import os
 from dotenv import load_dotenv
 load_dotenv()
 token = os.getenv("GITHUB_ACCESS_TOKEN")
 from fastmcp.client.group import ClientGroup
+from logger.log import setup_logging
+log = setup_logging()
 
 @dataclass
 class MCPSessionEntry():
+    server_name: str
     client:object
     adapter:object
     session:object
@@ -24,26 +25,34 @@ class MCPSessionEntry():
 
 class MCPManager():
 
-    def __init__(self, client_group, client_factories:dict, pool_size:int = 1):
+    def __init__(self, pool_size:int = 1):
+        #client_group, client_factories:dict
+
+        self.pool_size = pool_size
 
         def create_github_client():
             return Client("https://api.githubcopilot.com/mcp/", auth=token,  mode="auto")
         
-        client_factories = {"github_1": create_github_client, "github_2": create_github_client,}
+        self.client_factories = {"github_1": create_github_client, "github_2": create_github_client,}
 
-        client_group = ClientGroup({"github_1":create_github_client(),"github_2":create_github_client()})
+        self.server_groups = {"github": ["github_1", "github_2",]}
 
-        self.client_group = client_group
 
-        self.client_factories = client_factories
+        self.client_group = ClientGroup({"github_1":create_github_client(),"github_2":create_github_client()}) 
+        # ClientGroup is the source of registered MCP servers 
 
         self.pool_size = pool_size
 
         self.tools_cache = {}
         self.session_pools = {}
         self.searchable_tools = []
+        # Used to notify waiting acquire() calls
+        # when a session is released back to a pool.
+        self.pool_condition = asyncio.Condition()
+
 
     async def _create_session(self,server_name:str) -> MCPSessionEntry:
+        log.info("MCP SESSION CREATE START | server=%s", server_name)
 
         # Create a NEW Client for every pool entry
         client = self.client_factories[server_name]()
@@ -62,7 +71,10 @@ class MCPManager():
         else:
             tools = self.tools_cache[server_name]
 
+        log.info("MCP SESSION CREATE SUCCESS | server=%s",server_name)
+
         return MCPSessionEntry(
+            server_name = server_name,
             client=client,
             adapter=adapter,
             session=session,
@@ -73,57 +85,223 @@ class MCPManager():
 
 
     async def start(self):
-       # ClientGroup is the source of registered MCP servers 
+        """
+        Create connection pools for every physical MCP server.
+
+        Example with pool_size=2:
+
+            github_1 -> [S1, S2]
+            github_2 -> [S1, S2]
+        """
+        log.info("MCP MANAGER START | pool_size=%s", self.pool_size)
         for server_name in self.client_group.clients: # Python treats iteration over a dictionary as iteration over its keys.
-             # Pool for this server
-            #print("Server_name",server_name)
-            queue = asyncio.Queue(maxsize=self.pool_size) # Thsi one creates empty box
+            # Pool for this server
+            log.info("MCP POOL CREATE | server=%s | pool_size=%s", server_name, self.pool_size)
+            queue = asyncio.Queue(maxsize=self.pool_size) # This one creates empty box
             # Create N independent clients/sessions
             for _ in range(self.pool_size):
                 entry = await self._create_session(server_name)
                 await queue.put(entry)
 
             self.session_pools[server_name] = queue
+            log.info("MCP POOL READY | server=%s | available=%s", server_name, queue.qsize())
+
+        log.info("MCP MANAGER START COMPLETE")
 
             
 
-    async def acquire(self,server_name:str)-> MCPSessionEntry:
-        session_entry = await self.session_pools[server_name].get()
-        return session_entry
+    async def acquire(self,logical_server_name: str) -> MCPSessionEntry:
+
+        """
+        Acquire an available MCP session for a logical server.
+
+        Example:
+            await manager.acquire("github")
+
+        The manager checks all physical servers mapped to
+        the logical server and returns the first available session.
+
+        If all physical servers are busy, it waits until a
+        session is released.
+        """
+
+        if logical_server_name not in self.server_groups:
+            raise ValueError(
+                f"Unknown logical MCP server: "
+                f"{logical_server_name}"
+            )
+
+        physical_servers = self.server_groups[
+            logical_server_name
+        ]
+
+        log.info(
+            "MCP ACQUIRE START | logical_server=%s | "
+            "physical_servers=%s",
+            logical_server_name,
+            physical_servers
+        )
+
+        async with self.pool_condition:
+
+            while True:
+
+                # Check all physical servers for an
+                # immediately available session.
+                for server_name in physical_servers:
+
+                    queue = self.session_pools[server_name]
+
+                    try:
+                        session_entry = queue.get_nowait()
+
+                    except asyncio.QueueEmpty:
+                        continue
+
+                    log.info(
+                        "MCP ACQUIRE SUCCESS | "
+                        "logical_server=%s | "
+                        "physical_server=%s | "
+                        "available_after=%s",
+                        logical_server_name,
+                        server_name,
+                        queue.qsize()
+                    )
+
+                    return session_entry
+
+                # All physical servers are currently busy.
+                log.info(
+                    "MCP ACQUIRE WAIT | "
+                    "logical_server=%s | "
+                    "all physical servers busy",
+                    logical_server_name
+                )
+
+                # Wait until release() notifies us that
+                # a session has become available.
+                await self.pool_condition.wait()
 
 
-    async def release(self,server_name:str,session_entry:MCPSessionEntry):
-        await self.session_pools[server_name].put(session_entry)
+    async def release(self,session_entry:MCPSessionEntry):
+        """
+        Return a session to the physical server pool from which
+        it originally came.
+
+        The agent does NOT need to know the physical server.
+        """
+        server_name = session_entry.server_name
+
+        if server_name not in self.session_pools:
+             raise ValueError(
+                f"Unknown physical server: {server_name}"
+            )
+
+        queue = self.session_pools[server_name]
+        async with self.pool_condition:
+            await queue.put(session_entry)
+            log.info(
+                "MCP RELEASE | physical_server=%s | available=%s",
+                server_name,
+                queue.qsize()
+            )
+            # Wake up agents waiting for ANY session.
+            self.pool_condition.notify_all()
 
 
-    async def discard_and_replace(self,server_name:str,session_entry:MCPSessionEntry):
+    async def discard_and_replace(self,session_entry:MCPSessionEntry):
+        """
+        Close a broken MCP connection and create a replacement
+        connection in the same physical server pool.
+        """
+        server_name = session_entry.server_name
+        log.warning(
+            "MCP DISCARD SESSION | server=%s",
+            server_name
+        )
+
         # Close the broken conenction
-        await session_entry.exit_stack.aclose()
+        try:
+            await session_entry.exit_stack.aclose()
+        except Exception:
+
+            log.exception(
+                "MCP SESSION CLOSE FAILED | server=%s",
+                server_name
+            )
 
         # Create a completely new connection
         replacement = await self._create_session(server_name)
 
-        # Return replacement to the pool
-        await self.session_pools[server_name].put(replacement)
+        # --------------------------------------------------
+        # Return replacement to same physical pool
+        # --------------------------------------------------
+        async with self.pool_condition:
+
+            # Return replacement to the pool
+            await self.session_pools[server_name].put(replacement)
+            log.info(
+                "MCP SESSION REPLACED | server=%s | available=%s",
+                server_name,
+                self.session_pools[
+                    server_name
+                ].qsize()
+            )
+          # Wake agents waiting for a session.
+            self.pool_condition.notify_all()
+
 
     async def close(self):
-        for queue in self.session_pools.values():
+        """
+        Close all currently available MCP sessions.
+
+        Sessions currently checked out by agents must first be
+        released before they can be closed by this method.
+        """
+        log.info("MCP MANAGER CLOSE START")
+
+        for server_name, queue in self.session_pools.items():
+
+            log.info(
+                "MCP POOL CLOSE | server=%s | available=%s",
+                server_name,
+                queue.qsize()
+            )
+
             while not queue.empty():
+
                 session_entry = await queue.get()
 
-                await session_entry.exit_stack.aclose()
+                try:
+
+                    await session_entry.exit_stack.aclose()
+
+                    log.info(
+                        "MCP SESSION CLOSED | server=%s",
+                        server_name
+                    )
+
+                except Exception:
+
+                    log.exception(
+                        "MCP SESSION CLOSE FAILED | server=%s",
+                        server_name
+                    )
+
+
+
+
+
 
 ''' 
 
-if __name__=="__main__":
-   
-    mcp_manager = MCPManager(client_group=None, client_factories=None, pool_size=1)
-    asyncio.run(mcp_manager.start()) 
-    session_entry = asyncio.run(mcp_manager.acquire("github_1"))
-    from app.utilis.utilis import InterruptDefinition
-    interrupt = InterruptDefinition(session_entry.tools)
-    distructive_tools = interrupt.save_distructive_tools()
-    print(distructive_tools)
+MCP Server: github_1
+        ↓
+    Connection Pool
+        ↓
+ ┌──────┬──────┬──────┐
+ │ S1   │ S2   │ S3   │
+ └──────┴──────┴──────┘
 '''
 
 

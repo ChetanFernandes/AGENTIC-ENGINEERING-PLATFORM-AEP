@@ -10,6 +10,7 @@ from app.schemas.custom_schemas import ArtifactRecord
 from app.artifacts_storage.artifcats_storage import ArtifactStorage
 from app.schemas.agent_output_schema import AgentOutput
 from logger.log import setup_logging
+from langchain.tools import tool
 log = setup_logging()
 import asyncio
 
@@ -142,14 +143,65 @@ class backend:
         namespace = ("users", user_id)
         key = f"/{user_id}_USER_MEMORY.md"
         item = self.store.get(namespace,key)
-        if not item:
+        if item:
+            data = item.value.get("content","")
+        else:
             return None
-        data = item.value["content"]
         if data:
             return data
         else:
             return None
 
+    
+    async def write_user_personal_memory(self,user_id:str, agent_learning:str):
+        """Store important user information for future conversations."""
+        namespace = ("users", user_id)
+
+        key = f"/{user_id}_USER_MEMORY.md"
+
+        # Read existing memory
+        existing_memory = await self.store.aget(namespace,key)
+
+        existing_content = ""
+
+        if existing_memory:
+            existing_content = existing_memory.value.get("content", "")
+
+        # Clean new memory
+        new_memory = agent_learning.strip()
+
+        if not new_memory:
+            log.info("No memory provided.")
+            return "No memory provided."
+
+
+        # Duplicate check
+        if new_memory.lower() in existing_content.lower():
+            log.info("%s memory already exists. Skipping.", user_id)
+            return "Memory already exists. Skipping duplicate."
+  
+        # Append new memory
+        if existing_content.strip():
+            updated_content = (
+                existing_content.rstrip()
+                + "\n\n"
+                + new_memory
+            )
+ 
+        else:
+            updated_content = new_memory
+
+        self.store.aput(namespace, key,create_file_data(updated_content))
+
+        log.info("%s memory updated", user_id)
+
+        return "Memory stored successfully."
+
+    @tool
+    async def write_memory(self,memory: str):
+        """Store important information about the user for future conversations."""
+        return await self.write_user_personal_memory(user_id=self.user_id, agent_learning=memory)
+        
     def close(self):
         self.store_context.__exit__(None, None, None)
         

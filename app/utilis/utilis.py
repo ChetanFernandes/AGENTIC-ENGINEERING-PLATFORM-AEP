@@ -1,31 +1,19 @@
-from fastmcp import Client
+
 from dotenv import load_dotenv
 load_dotenv()
-import os
-from fastmcp.client.group import ClientGroup
 from mcp import MCPError
-from langchain.tools import BaseTool
-from langchain.tools.tool_node import ToolCallRequest
-from langchain.agents.middleware.human_in_the_loop import InterruptOnConfig
 import json
 from langchain_core.prompts import ChatPromptTemplate
 from typing_extensions import Any
 from app.schemas.agent_output_schema import AgentOutput
 from langchain_core.messages import AIMessage, ToolMessage
+from deepagents.backends import LangSmithSandbox
 from logger.log import setup_logging
 log = setup_logging()
 
-token = os.getenv("GITHUB_ACCESS_TOKEN")
-
-def create_github_client():
-    return Client("https://api.githubcopilot.com/mcp/", auth=token,  mode="auto")
-
-client_factories = {"github_1": create_github_client, "github_2": create_github_client,}
-
-client_group = ClientGroup({"github_1":create_github_client(),"github_2":create_github_client()})
-
 
 def is_broken_mcp_session(exc: Exception) -> bool:
+    """ To check is currect MCP session is broken or not"""
 
     if isinstance(exc, MCPError):
 
@@ -35,47 +23,6 @@ def is_broken_mcp_session(exc: Exception) -> bool:
             return True
 
     return False
-
-
-class InterruptDefinition:
-
-    def __init__(self, tools):
-        self.tools = tools
-        self.distructive_tools = []
-
-        self.mutation_tools = [
-                "create_branch",
-                "push_files",
-                "create_or_update_file",
-                "create_pull_request",
-        ]
-
-    def find_destructive_tool(self,tool:BaseTool) -> bool:
-        annotation = ( (tool.metadata or {}).get("mcp",{}).get("tool",{}).get('annotations',{}))
-        return annotation.get("destructive_hint",False)
-
-    def save_distructive_tools(self):
-        self.distructive_tools = [tool.name for tool in self.tools if self.find_destructive_tool(tool)]
-        return self.distructive_tools
-
-
-    def needs_approval(self,request:ToolCallRequest) -> bool:
-        tool_name = request.tool_call["name"]
-
-        if tool_name in self.distructive_tools:
-            return True
-        if tool_name in self.mutation_tools:
-            return True
-
-        return False
-
-
-    def define_interrupt_on(self):
-        gate = InterruptOnConfig(allowed_decisions=["approve","reject"], when = self.needs_approval)
-        approval_tools = set(self.distructive_tools) | set(self.mutation_tools)
-        #print("Approval Tools",approval_tools)
-        interrupt_on: dict[str: bool | InterruptOnConfig] = {tool_name: gate for tool_name in approval_tools}
-        return interrupt_on
 
 
 def print_agent_output(agent_output):
@@ -166,14 +113,15 @@ def extract_learning(experience, existing_learning,llm_openai,LearningOutput):
     return result
 
 def detect_execution_event(messages):
-    details = {"content": None, "tool_errors": []}
+    """ To extract content and error in case final output returned by message is not structured response"""
+    details = {"AI_content": None, "Tool_content":None, "tool_errors": []}
+
     for message in reversed(messages):
      
         if isinstance(message,AIMessage):
             content = message.content
-            if details["content"] is None:
-                details["content"] = content
-
+            if details["AI_content"] is None:
+                details["AI_content"] = content
 
         if isinstance(message,ToolMessage):
             if message.status == "error":
@@ -194,6 +142,7 @@ def detect_execution_event(messages):
     return details
 
 def normalize_agent_output(result:dict|Any) -> AgentOutput:
+    """ To normalize final agent output"""
     try:
         # ---------------------------------------------------------
         # CASE 1: Deep Agent returned structured_response
@@ -233,19 +182,20 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
 
         errors = []
 
-        content = details.get("content",None)
+        AI_content = details.get("AI_content",None)
 
         tool_errors = details.get("tool_errors",None)
 
         if tool_errors:
+
             errors.extend(tool_errors)
         
         # ---------------------------------------------------------
         # CASE 2A: content is a string
         # ---------------------------------------------------------
-        if isinstance(content,str):
+        if isinstance(AI_content,str):
             log.info("Agent returned output in form of string")
-            text = content.strip()
+            text = AI_content.strip()
             #Try JSON first
             try:
                 parsed = json.loads(text)
@@ -255,7 +205,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
 
                    # Not JSON → treat it as normal agent output
             return AgentOutput(
-                status="Partial_Success",
+                status="partial_success",
                 result = text,
                 errors = errors,
                 metadata={
@@ -267,11 +217,11 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
         # ---------------------------------------------------------
         # CASE 2B: content is a list of content blocks
         # ---------------------------------------------------------
-        if isinstance(content,list):
+        if isinstance(AI_content,list):
             log.info("Agent returned output in form of list")
             text_parts = []
 
-            for block in content:
+            for block in AI_content:
                 if not isinstance(block,dict):
                     continue
 
@@ -291,15 +241,15 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
                 except (json.JSONDecodeError, ValueError, TypeError):
                     pass
 
-                    return AgentOutput(
-                                status="partial_success",
-                                result = text,
-                                errors = errors,
-                                metadata={
-                                    "output_source": "ai_message_text_blocks",
-                                    "structured_response_missing": True
-                                }
-                            )
+                return AgentOutput(
+                            status="partial_success",
+                            result = text,
+                            errors = errors,
+                            metadata={
+                                "output_source": "ai_message_text_blocks",
+                                "structured_response_missing": True
+                            }
+                        )
 
         # ---------------------------------------------------------
         # CASE 3: Nothing usable
@@ -320,7 +270,42 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
 
         
             
+def format_previous_question(previous_messages:list,current_question):
+    requests = []
+    for message in previous_messages:
+        if message != current_question:
+                requests.append(message)
 
+    return "\n\n".join(f"previous_requests: {i+1}: {message}" for i, message in enumerate(requests))
+
+def sandbox_provision(client):
+    sandboxes = client.list_sandboxes()
+    ls_sandbox = next((sandbox for sandbox in sandboxes if sandbox.name =="aep-sandbox"),None)
+    log.info("List of existing sandbox:%s",  ls_sandbox)
+
+    if  ls_sandbox:
+        status =  client.get_sandbox_status(ls_sandbox.name)
+        log.info("status of Sandbox:%s",status.status)
+
+    if ls_sandbox and status.status in ("running","ready","idle","provisioning"):
+        log.info("Reusing Sandbox:%s", ls_sandbox.name)
+
+    elif ls_sandbox and status.status == "stopped":
+        client.start_sandbox(ls_sandbox.name, timeout=600)
+        log.info("Sandbox started successfully:%s", ls_sandbox.name)
+
+    elif ls_sandbox and status.status == "failed":
+        client.delete_sandbox(ls_sandbox.name)
+        ls_sandbox = client.create_sandbox(name="aep-sandbox")
+        log.info("Failed Sandbox deleted and created new one:%s", ls_sandbox.name)
+
+    else:
+        ls_sandbox = client.create_sandbox(name="aep-sandbox")
+        log.info("Created sandbox -> %s", ls_sandbox.name)
+
+    sandbox_backend = LangSmithSandbox(sandbox = ls_sandbox)
+    return sandbox_backend , ls_sandbox
+        
     
 
     

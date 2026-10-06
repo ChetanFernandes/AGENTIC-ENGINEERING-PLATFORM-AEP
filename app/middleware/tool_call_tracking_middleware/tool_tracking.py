@@ -306,6 +306,7 @@ class state_Tool_Tracking(AgentMiddleware):
             "result": repr(response)
         })
 
+        
         return response
 
       
@@ -316,11 +317,15 @@ class state_Tool_Tracking(AgentMiddleware):
             print("Deep_agent_state_after_agent")
             print("-" * 70)
 
+            log.info("Exection_events:%s",self.execution_events)
+
+            # Update Learning.MD
             existing_learning = ""
 
             try:
 
                 existing_learning =  self.store_backend.read_agent_learning()
+
                 if existing_learning is None:
                     existing_learning = ""
                 
@@ -332,8 +337,8 @@ class state_Tool_Tracking(AgentMiddleware):
             except Exception:
                 log.info("learning.MD not availabe yet")
 
-     
             learning = extract_learning(self.execution_events, existing_learning, llm_openai_mini, LearningOutput)
+
             log.info("Successfully extracted new learning")
 
             log.info("Learning extraction completed")

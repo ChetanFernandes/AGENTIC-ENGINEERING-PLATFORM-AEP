@@ -6,7 +6,7 @@ from logger.log import setup_logging
 log = setup_logging()
 
 from fast_api.service_layer import ServiceLayer
-from app.schemas.fast_api_schema import PayloadData
+from app.schemas.fast_api_schema import ChatRequest, ResumeRequest
 
 
 service_layer = ServiceLayer()
@@ -20,13 +20,17 @@ async def lifespan(app):
         log.info("Application started")
         yield
         log.info("Shutting down AEP application")
+        
 
     except Exception:
         log.exception("Error during AEP application lifecycle")
         raise
 
     finally:
-        log.info("Shutting down AEP application")
+        log.info("Application shutting down. Closing MCP manager.")
+        await service_layer.agent_executor.mcp_manager.close()
+        log.info("MCP manager closed.")
+
 
 app = FastAPI(title = "AEP", lifespan = lifespan)
 
@@ -43,13 +47,21 @@ async def health():
     }
 
 @app.post('/chat')
-async def user_input(data:PayloadData):
+async def user_input(data:ChatRequest):
     try:
-        result = await service_layer.get_payload_data(data.user_name, data.thread_id , data.question)
-        return result
+        return await service_layer.get_payload_data(data.user_name, data.thread_id , data.question)
     except Exception:
         log.exception("Error while processing the request")
         raise
+
+@app.post('/resume')
+async def interrupt_resume(data:ResumeRequest):
+    try:
+        return await service_layer.interrupt_resume(data.decision, data.thread_id, data.user_name)
+    except Exception:
+        log.exception("Error while processing the interruptrequest")
+        raise
+
 
 
 

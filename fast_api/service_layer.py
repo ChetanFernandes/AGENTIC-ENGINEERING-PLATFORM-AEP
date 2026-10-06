@@ -35,7 +35,7 @@ class ServiceLayer:
     async def get_payload_data(self,user_name,thread_id,question):
         try:
             result = await self.initialize_langgraph(user_name,thread_id,question)
-            return result.get("final_answer","NA")
+            return result
         except Exception:
             raise
 
@@ -44,8 +44,10 @@ class ServiceLayer:
         try:
             runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
             config = {"configurable" : {"thread_id": thread_id}}
+
             log.info("QUESTION RECEIVED BY API: %s", question)
             log.info("========== BEFORE GRAPH AINVOKE ==========")
+
             result = await self.graph.ainvoke( {
                 
                                                  "user_request": question, 
@@ -55,38 +57,67 @@ class ServiceLayer:
                                                   context = runtime_context
                                               )
 
-            while "__interrupt__" in result:
+            if "__interrupt__" in result:
 
-                print("GRAPH INTERRUPT CAUGHT IN DEEP_AGENT_EXECUTOR")
+                log.info("GRAPH INTERRUPT CAUGHT IN DEEP_AGENT_EXECUTOR:thread_id = %s",thread_id)
 
-                print(result["__interrupt__"][0].value["action_requests"])
-                print(result["__interrupt__"][0].value["review_configs"])
+                interrupt = result["__interrupt__"][0]
 
-
-                decision = input("Do you want to approve or reject this tool call? ").strip().lower()
-                    
-                if decision in ["approve","reject"]:
-                    result = await self.graph.ainvoke(  
-                                                        Command(resume={
-                                                                "decisions": [
-                                                                    {"type": decision} #"reject"
-                                                                ]
-                                                            }
-                                                        ),
-                                                        config = config,
-                                                        context = runtime_context
-                                            ) 
-
-                
+                return {
+                            "status":"waiting_for_approval",
+                            "thread_id": thread_id,
+                            "action_requests":interrupt.value["action_requests"],
+                            "review_configs": interrupt.value["review_configs"]
+                       }
+            
+            
+            
             log.info("========== AFTER GRAPH AINVOKE ==========")
-            log.info("Graph result type: %s", type(result))
-            log.info(
-                "Graph result keys: %s",
-                result.keys() if isinstance(result, dict) else None
-            )
+            log.info("Final_agnet_output:%s",result["final_answer"])
+            
             return result
-
+            
+            
         except Exception:
+            log.exception("Error while executing LangGraph")
+            raise
+
+    async def interrupt_resume(self,decision,thread_id,user_name):
+        try:
+            runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
+            config = {"configurable" : {"thread_id": thread_id}}
+
+            log.info("RESUMING GRAPH: thread_id=%s decision=%s", thread_id, decision)
+            
+            result = await self.graph.ainvoke(  
+                                                Command(resume={
+                                                        "decisions": [
+                                                            {"type": decision} 
+                                                        ]
+                                                    }
+                                                ),
+                                                config = config,
+                                                context = runtime_context
+                                                )
+            if "__interrupt__" in result:
+                # Another HITL interrupt occurred
+                log.info("Another HITL interrupt occurred")
+                interrupt = result["__interrupt__"][0]
+
+                return {
+                    "status": "waiting_for_approval",
+                    "thread_id": thread_id,
+                    "action_requests": interrupt.value["action_requests"],
+                    "review_configs": interrupt.value["review_configs"]
+                   }
+
+            log.info("========== AFTER GRAPH AINVOKE_POST_Interrupt ==========")
+            log.info("Final_agnet_output:%s",result["final_answer"])
+            
+            return result
+           
+        except Exception:
+            log.exception("Error while resuming LangGraph")
             raise
 
 

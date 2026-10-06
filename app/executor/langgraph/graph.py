@@ -21,7 +21,8 @@ from app.backends.store.store import backend
 from app.artifacts_storage.azure_blob import BlobStorage
 from app.mcp.mcp_manager.mcp_manager import MCPManager
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from app.utilis.utilis import client_factories, client_group, is_broken_mcp_session, InterruptDefinition,normalize_agent_output
+from app.utilis.utilis import is_broken_mcp_session, normalize_agent_output, format_previous_question, sandbox_provision
+from app.utilis.interrupt_utilis import InterruptDefinition
 from langgraph.errors import GraphInterrupt
 from langchain.agents.middleware import ProviderToolSearchMiddleware
 from langchain_core.prompts import ChatPromptTemplate
@@ -39,10 +40,11 @@ from dataclasses import dataclass
 from logger.log import setup_logging
 log = setup_logging()
 
-
+'''
 @dataclass
 class ContextSchema():
     user_id:str
+''' 
 
 class AgentExecutor:
 
@@ -53,24 +55,11 @@ class AgentExecutor:
             self.context_manager = ContextManager()
 
             # MCP
-            self.mcp_manager = MCPManager(client_group=client_group, client_factories=client_factories, pool_size=5)
+            self.mcp_manager = MCPManager(pool_size=5)
 
             # Sandbox
             self.client = SandboxClient()
-            #sandbox = self.client.list_sandboxes()
-            self.ls_sandbox = self.client.create_sandbox()
-            '''
-            existing = next((sandbox for sandbox in sandboxes if sandbox.name =="aep-sandbox"),None)
-            if existing:
-                self.ls_sandbox = existing
-                log.info("Reusing Sandbox:%s ->", self.ls_sandbox.name)
-            else:
-                self.ls_sandbox = self.client.create_sandbox(name="aep-sandbox")
-                log.info("Created sandbox -> %s", self.ls_sandbox.name)
-            '''  
-            self.sandbox_backend = LangSmithSandbox(sandbox = self.ls_sandbox)
-    
-
+        
             # adding nodes
             self.graph.add_node("router",self.router)
             self.graph.add_node("orchestrator",self.orchestrator)
@@ -86,7 +75,6 @@ class AgentExecutor:
             # set_entry_point(node) defines the first node the graph will execute. It is equivalent to builder.add_edge(START, node).
             # set_finish_point(node) defines the last node in the graph. It is equivalent to builder.add_edge(node, END).
             # Both methods are valid but add_edge(START, ...) and add_edge(..., END) are the recommended modern syntax.
-
 
             self.graph.add_edge(START, "router")
             self.graph.add_edge("router", "orchestrator")
@@ -108,23 +96,17 @@ class AgentExecutor:
             self.interrupt_on = {}
             self.discarded = False
             self.exit_stack = AsyncExitStack()
+            self.sandbox_backend = None
+            self.ls_sandbox = None
 
     except Exception:
         log.exception("Error while initializing graph")
         raise
 
 
-    def format_previous_question(self,previous_messages:list,current_question):
-        requests = []
-        for message in previous_messages:
-            if message != current_question:
-                    requests.append(message)
-
-        return "\n\n".join(f"previous_requests: {i+1}: {message}" for i, message in enumerate(requests))
-
     async def router(self, state:CustomState , runtime:Runtime, config : RunnableConfig ):
         try:
-
+            self.sandbox_backend, self.ls_sandbox = sandbox_provision(self.client)
             log.info("user_id:%s",runtime.context.user_id)
             log.info("thread_id:%s",config["configurable"].get("thread_id","NA"))
             
@@ -132,12 +114,11 @@ class AgentExecutor:
 
             log.info("user_request:%s",current_question)
 
-            previous_questions = state.get("messages", [])
-            log.info("previous_question:%s",previous_questions)
+            previous_question_history = state.get("messages", [])
 
-            if previous_questions:
+            if previous_question_history:
                 previous_accumulated_questions = []
-                for message in previous_questions:
+                for message in previous_question_history:
                     if isinstance(message, HumanMessage):
                         content = message.content.strip()
 
@@ -147,7 +128,7 @@ class AgentExecutor:
             log.info("previous_accumulated_questions:%s\n",previous_accumulated_questions)
             log.info("Length of previous questions:%s", len(previous_accumulated_questions))
 
-            formatted_questions = self.format_previous_question(previous_accumulated_questions, current_question)
+            formatted_questions = format_previous_question(previous_accumulated_questions, current_question)
             log.info("Formatted_question:%s",formatted_questions)
 
             chat_template = ChatPromptTemplate.from_messages([
@@ -193,7 +174,7 @@ class AgentExecutor:
         try:
             ready_agents = state["ready_routes"]
 
-            log.info("Details gathering for ready agent:%s", ready_agents)
+            log.info("Agent ready for execution:%s", ready_agents)
 
             user_id = runtime.context.user_id
 
@@ -263,6 +244,7 @@ class AgentExecutor:
             
     
     async def deep_agent_executor(self,state:CustomState, runtime:Runtime, config : RunnableConfig):
+        session_entry = None
         try:
 
             current_route = state["current_route"]
@@ -282,15 +264,13 @@ class AgentExecutor:
             log.info("Route_id->%s",route_id)
             log.info("Context given is -> %s",content)
   
-    
-
             user_id = runtime.context.user_id
-
             user_memory_file = f"/memories/personal/{user_id}_USER_MEMORY.md"
             #user_memory_file=user_memory_file
             system_prompt = main_agent_system_prompt                          
-            session_entry = await self.mcp_manager.acquire("github_1")
+            session_entry = await self.mcp_manager.acquire("github")
             mcp_tools = session_entry.tools
+            log.info("mcp_tools:%s",mcp_tools)
             searchable_tools = [tool.name for tool in mcp_tools]
             interrupt = InterruptDefinition(session_entry.tools)
 
@@ -298,7 +278,6 @@ class AgentExecutor:
             if self.distructive_tools is None:
                 self.distructive_tools = interrupt.save_distructive_tools()
                 log.info("Calling self distructive function once ->%s",  self.distructive_tools)
-
             else:
                 log.info("For second round self distructibe tools not called ->%s",self.distructive_tools)
 
@@ -330,18 +309,15 @@ class AgentExecutor:
                                             system_prompt = system_prompt, 
                                             response_format=AgentOutput, 
                                             middleware=[state_Tool_Tracking(store = self.store_backend.return_store(), backend = self.store_backend), 
-                                                                            #*tool_error_retry_middleware(),
-                                                                            #model_error_middleware(),
                                                                             create_summarization_middleware(self.sandbox_backend),
-                                                                            #model_call_limit_middleware(),
-                                                                            #tool_call_limit_middleware(),
-                                                                            #context_editing_middleware(),
-                                                                            #ProviderToolSearchMiddleware(searchable_tools = searchable_tools),
+                                                                            context_editing_middleware(),
                                                                             HumanInTheLoopMiddleware(interrupt_on = self.interrupt_on)], 
+                                                                            #ProviderToolSearchMiddleware(searchable_tools = searchable_tools)],
+                                                                           
                                             subagents = [sub_agent_caller()],
                                             store = self.store_backend.return_store() ,
                                             checkpointer = self.checkpointer_context ,
-                                            tools = mcp_tools + [search_recent_conversation],
+                                            tools = mcp_tools + [search_recent_conversation, self.store_backend.write_memory],
                                             permissions = [ FilesystemPermission(operations=['read','write'], paths=["/memories/personal/", "/memories/shared/LEARNINGS.md"], mode = 'allow'),],
                                             memory = ["/memories/shared/LEARNINGS.md", "/memories/shared/AGENTS.md" , user_memory_file])
                                                     
@@ -361,6 +337,26 @@ class AgentExecutor:
 
                                                 config = config,
                                                 context = runtime.context)
+            messages = result.get("messages", [])
+
+            log.info("========== DEEP AGENT RESPONSE ==========")
+            log.info("MESSAGE COUNT: %d", len(messages))
+
+            for i, msg in enumerate(messages):
+                log.info("MSG[%d] type=%s id=%s content_type=%s",
+                    i,
+                    type(msg).__name__,
+                    getattr(msg, "id", None),
+                    type(getattr(msg, "content", None)).__name__,
+                )
+
+                log.info("MSG[%d] content=%s",i, str(getattr(msg, "content", ""))[:1000])
+
+            structured_response = result.get("structured_response")
+
+            log.info("STRUCTURED RESPONSE TYPE: %s", type(structured_response).__name__)
+
+            log.info("STRUCTURED RESPONSE: %s", str(structured_response)[:2000])
 
             log.info("Result type:%s", type(result))
 
@@ -378,7 +374,7 @@ class AgentExecutor:
                 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "successful_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 
-            elif route_is_final and status in ("partial","partial_success", "failed","blocked"):
+            elif route_is_final and status in ("partial_success", "failed","blocked"):
 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "failed_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 
@@ -397,23 +393,34 @@ class AgentExecutor:
 
             log.exception("Error occured during execution of node deep_agent_executor")
 
-            if is_broken_mcp_session(exc):
+            if (session_entry is not None and is_broken_mcp_session(exc)):
+                log.warning("Broken MCP session detected | "
+                            "server=%s",
+                            session_entry.server_name
+                            )
 
-                await self.mcp_manager.discard_and_replace("github_1", session_entry)
+                await self.mcp_manager.discard_and_replace(session_entry)
 
                 self.discarded = True
+                # Important:
+                # This session has already been discarded.
+                #
+                # Therefore finally must NOT release it.
+                session_entry = None
 
-            else:
-                raise
-        '''
+            raise
+
         finally:
-
-            if self.ls_sandbox:
-                #self.client.delete_sandbox(self.ls_sandbox.name)
-
-            if not self.discarded:
-                await self.mcp_manager.release("github_1", session_entry)
-        '''
+            # =====================================================
+            # Always return healthy acquired session
+            # 
+            if session_entry is not None:
+                log.info(
+                "Releasing MCP session | server=%s",
+                session_entry.server_name
+            )
+                await self.mcp_manager.release(session_entry)
+    
 
     def fan_in_routes(self, state: CustomState):
         try:
@@ -473,11 +480,11 @@ class AgentExecutor:
 
             log.info('Store_contents_post_ready_agent_execution:%s',state["ready_routes"])
 
-            user_id = runtime.context.user_id
+            #user_id = runtime.context.user_id
         
-            log.info("New_learning_updated in store:%s", self.store_backend.read_agent_learning())
+            #log.info("New_learning_updated in store:%s", self.store_backend.read_agent_learning())
     
-            log.info("User_memory_updated ->%s", self.store_backend.read_user_personal_memory(user_id))
+            #log.info("User_memory_updated ->%s", self.store_backend.read_user_personal_memory(user_id))
 
         except Exception:
             log.exception("Error occured during execution of node store_tracking_after_deep_agent_execution")
@@ -485,9 +492,13 @@ class AgentExecutor:
  
     async def end_node(self,state:CustomState):
         try:
-            log.info("Workflow completed. Closing MCP manager.")
-            await self.mcp_manager.close()
-            return {}
+            #log.info("Workflow completed. Closing MCP manager.")
+            #await self.mcp_manager.close()
+
+            log.info("Workflow completed. Deleting Sandbox:%s",self.ls_sandbox.name)
+            if self.ls_sandbox:
+                self.client.delete_sandbox(self.ls_sandbox.name)
+            return state
         except Exception:
             log.exception("Error occured during execution of end_node")
             raise

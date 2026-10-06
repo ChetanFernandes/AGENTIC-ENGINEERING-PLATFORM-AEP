@@ -12,26 +12,20 @@ class RouteOrchestor:
         self.agent_ready_to_execute = []
         self.route_executed = []
         self.route_failed = []
+        self.routing_decision = []
+        self.length_of_routes:int = 0
   
 
     async def execution_director(self, state:CustomState):
         try:
-            route_decision = state["routing_information"]
+            self.routing_decision = state["routing_information"]
 
-            self.route_executed = state.get("successful_route_executed",{})
+            log.info("Routing_Decision:%s", self.routing_decision.routes)
 
-            self.route_failed = state.get("failed_route_executed",{})
-
-            log.info("Agent route executed successfully %s",  self.route_executed)
-
-            log.info("Agent route failed or blokced %s",    self.route_failed)
-
-            log.info("Routing_Decision:%s", route_decision.routes)
-
-            for route in route_decision.routes:
-
+            for route in self.routing_decision.routes:
+            
                 dependencies = route.dependencies
-
+            
                 if dependencies:
 
                     self.agent_with_dependencies[route.route_id] = {"route_id" : route.route_id  ,"agent" : route.agent , "dependencies" : dependencies, "task":route.task, "is_final":route.is_final }
@@ -40,13 +34,29 @@ class RouteOrchestor:
 
                     self.agent_no_dependencies[route.route_id] = {"route_id" : route.route_id , "agent" : route.agent,"task":route.task,"is_final":route.is_final}
 
-        
-            log.info("Agent_with_dependencies: %s",  self.agent_with_dependencies)
-            log.info("Agent_with_no_dependencies: %s",  self.agent_no_dependencies)
+            log.info("Agent_with_dependencies: %s\n",  self.agent_with_dependencies)
 
-            length_of_routes = len(route_decision.routes)
+            log.info("Agent_with_no_dependencies: %s\n",  self.agent_no_dependencies)
 
-            log.info("Length of routes: %s", length_of_routes)
+            self.length_of_routes = len(self.routing_decision.routes)
+
+            log.info("Length of routes -> %s", self.length_of_routes)
+    
+
+            self.route_executed = state.get("successful_route_executed",{})
+
+            self.route_failed = state.get("failed_route_executed",{})
+
+            log.info("Agent route executed successfully %s", self.route_executed)
+
+            log.info("Agent route failed or blokced %s", self.route_failed)
+
+            completed_routes = (set(self.route_executed.keys())) | set(self.route_failed.keys())
+
+            log.info("Number of routes executed -> %s", len(completed_routes))
+
+            log.info("Number of routes left to be executed -> %s", self.length_of_routes - len(completed_routes))
+
 
             self.agent_ready_to_execute = []
 
@@ -62,9 +72,9 @@ class RouteOrchestor:
                         self.agent_ready_to_execute.append(route)
 
             #check for dead lock
-            completed_routes = (set(self.route_executed.keys())) | set(self.route_failed.keys())
+         
             
-            if len(completed_routes) == length_of_routes:
+            if len(completed_routes) == self.length_of_routes:
                  log.info("All routes completed.")
                  return {"ready_routes": []}
             
