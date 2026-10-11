@@ -8,7 +8,12 @@ AGENT_CONTEXT_POLICY = {
             "architecture",
             "security",
             "code_review",
-            "testing"
+            "testing",
+            "code_engineering",
+            "performance",
+            "optimization",
+            "refactoring",
+            "Jira"
         ]
     },
 
@@ -55,7 +60,9 @@ AGENT_CONTEXT_POLICY = {
             "security",
             "architecture",
             "testing",
-            "performance"
+            "performance",
+            "refactoring",
+
         ]
     },
 

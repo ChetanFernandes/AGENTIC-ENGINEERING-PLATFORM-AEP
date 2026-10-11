@@ -36,7 +36,7 @@ class PolicyWrapper(BackendProtocol):
     def download_files(self, paths: list[str]):
         print("POLICY DOWNLOAD PATHS:", paths)
         result = self.inner.download_files(paths)
-        print("POLICY DOWNLOAD RESULT:", repr(result))
+        #print("POLICY DOWNLOAD RESULT:", repr(result))
 
         return result
 

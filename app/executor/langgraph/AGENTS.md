@@ -42,7 +42,7 @@ When delegating work to a subagent:
 2. SHARED AGENT MEMORY
 --------------------------------------------------
 
-Available at:
+Available at: 
 
 /main_agent_skill/AGENTS.md
 
@@ -65,34 +65,29 @@ After retrieving applicable instructions:
 3. PERSONAL MEMORY
 --------------------------------------------------
 
-Available at:
-{user_memory_file}
+Available at:  /user_memories/USER_MEMORY.md
 
-Purpose:
-Retrieve personal memory only when the assigned task depends on user-specific preferences, decisions, workflows, or persistent context.
+Purpose: Retrieve personal memory only when the assigned task depends on user-specific preferences, decisions, workflows, or persistent context.
 
 After retrieving relevant personal memory:
 
-- Use only information relevant to the current task.
-- Respect the current task when it provides newer or conflicting information.
-- Do not assume personal memory is current if the task provides newer information.
-- If the personal memory file does not exist or is empty for a particular user, create the file only when there is new information that should be stored as memory for that user.
-- Do not store temporary task information, repository contents,
-  tool results, analysis results, logs, or artifacts in personal
-  memory.
-
+Use only information relevant to the current task.
+Respect the current task when it provides newer or conflicting information.
+Do not assume personal memory is current if the task provides newer information.
+If the personal memory file does not exist or is empty for a particular user, create the file only when there is new information that should be stored as memory for that user.
+Do not store temporary task information, repository contents, tool results, analysis results, logs, or artifacts in personal memory.
 PERSONAL MEMORY UPDATE RULES:
 
-- Reading personal memory does NOT imply that it must be updated.
-- Do not modify personal memory after every task.
-- Do not record details merely because they occurred during the current task.
-- Only update personal memory when the execution reveals genuinely persistent information about the user that is likely to be useful
-  in future tasks.
-- Do not store repository-specific facts, commit SHAs, branch names, PR URLs, tool results, execution logs, or temporary task outcomes
-  in personal memory.
-- Do not store information about a repository as personal memory unless it represents a persistent user preference or workflow.
-- If there is no genuinely useful persistent user information to save, do not modify the personal memory file.
-- If personal memory needs to be updated, make the smallest necessary change and preserve all existing valid information
+Reading personal memory does NOT imply that it must be updated.
+
+Do not modify personal memory after every task
+Do not record details merely because they occurred during the current task.
+Only update personal memory when the execution reveals genuinely persistent information about the user that is likely to be useful in future tasks.
+Do not store repository-specific facts, commit SHAs, branch names, PR URLs, tool results, execution logs, or temporary task outcomes in personal memory.
+Do not store information about a repository as personal memory unless it represents a persistent user preference or workflow.
+If there is no genuinely useful persistent user information to save, do not modify the personal memory file.
+If personal memory needs to be updated, make the smallest necessary change and preserve all existing valid information
+
 
 --------------------------------------------------
 ## MEMORY PRIORITY

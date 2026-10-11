@@ -32,8 +32,8 @@ class backend:
         key =  "/AGENTS.md"
         path = Path(r"app/executor/langgraph/AGENTS.md")
         item = self.store.get(namespace_memory,key)
-        if not item:
-            self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
+        #if not item:
+        self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
      
       
         namespace_memory = ("main_agent", "main_agent_learning")
@@ -188,14 +188,14 @@ class backend:
         """Store important user information for future conversations."""
         namespace = ("users", user_id)
 
-        key = f"/{user_id}_USER_MEMORY.md"
+        key = f"/USER_MEMORY.md"
 
         # Read existing memory
         existing_memory = await self.store.aget(namespace,key)
 
         existing_content = ""
 
-        if existing_memory:
+        if existing_memory and isinstance(existing_content.value, dict):
             existing_content = existing_memory.value.get("content", "")
 
         # Clean new memory
