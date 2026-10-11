@@ -35,9 +35,9 @@ def payload_send(user_name,thread_id,question):
         return None
 
 
-def interrupt(decision:str, thread_id:str, user_name:str):
+def interrupt(decision:str, thread_id:str, user_name:str, execution_id: str):
     try:
-        response = requests.post(url = f"{BASE_URL}/resume", json = {"decision":decision, "thread_id": thread_id, "user_name":user_name})
+        response = requests.post(url = f"{BASE_URL}/resume", json = {"decision":decision, "thread_id": thread_id, "user_name":user_name, "execution_id": execution_id})
         response.raise_for_status()
         return response.json()
     except Exception:
@@ -62,6 +62,9 @@ if "messages" not in st.session_state:
 
 if "pending_approval" not in st.session_state:
     st.session_state.pending_approval = None
+
+if "approval_processing" not in st.session_state:
+    st.session_state.approval_processing = False
 
 
 # --------------------------------------------------
@@ -236,35 +239,49 @@ if st.session_state.pending_approval is not None:
     col1,col2 = st.columns(2)
 
     with col1:
-        if st.button("Approve", key="approve_tool"):
+        if st.button("Approve", key="approve_tool", disabled=st.session_state.approval_processing):
 
-            response = interrupt("approve", st.session_state.thread_id,st.session_state.user_name)
+            # Immediately disable buttons
+            st.session_state.approval_processing = True
+
+            response = interrupt("approve", st.session_state.thread_id, st.session_state.user_name, st.session_state.pending_approval["execution_id"])
 
             if response is None:
+                st.session_state.approval_processing = False
                 st.stop()
 
             if response.get("status") == "waiting_for_approval":
+                # Another approval is required
                 st.session_state.pending_approval = response
+                st.session_state.approval_processing = False
 
             else:
                 st.session_state.pending_approval = None
+                st.session_state.approval_processing = False
                 final_answer = response.get("final_answer")
                 st.session_state.messages.append({"role": "assistant", "final_answer": final_answer})
 
             st.rerun()
 
     with col2:
-        if st.button("Reject",key = "reject_tool"):
-            response = interrupt("reject", st.session_state.thread_id,st.session_state.user_name)
+        if st.button("Reject",key = "reject_tool", disabled=st.session_state.approval_processing):
 
+            # Immediately disable buttons
+            st.session_state.approval_processing = True
+
+            response = interrupt("reject", st.session_state.thread_id,st.session_state.user_name,st.session_state.pending_approval["execution_id"])
+           
             if response is None:
+                st.session_state.approval_processing = False
                 st.stop()
 
             if response.get("status") == "waiting_for_approval":
                 st.session_state.pending_approval = response
+                st.session_state.approval_processing = False
             
             else:
                 st.session_state.pending_approval = None
+                st.session_state.approval_processing = False
                 final_answer = response.get("final_answer")
                 st.session_state.messages.append({"role": "assistant", "final_answer": final_answer})
 

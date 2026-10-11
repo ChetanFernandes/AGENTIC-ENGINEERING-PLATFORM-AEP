@@ -5,8 +5,8 @@ class AgentOutput(BaseModel):
     status: str
     summary: str|None = None
     result: str | None  = None
-    errors: list[str] = Field(default_factory=list)
-    metadata: dict = Field(default_factory=dict)
+    errors: list[str]| None = Field(default_factory=list)
+    metadata: dict|None = Field(default_factory=dict)
 
 
 

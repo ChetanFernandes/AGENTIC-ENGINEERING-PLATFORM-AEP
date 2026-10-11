@@ -1,7 +1,5 @@
 from langchain.tools import ToolRuntime
 from langchain.tools import tool
-from app.backends.store.store import backend 
-     
 
 @tool
 async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
@@ -23,9 +21,8 @@ async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
     checkpointer = runtime.context.checkpointer
     backend = runtime.context.backend
 
-
     if checkpointer is None:
-           return "Historical conversation search is unavailable: checkpointer is not configured."
+        return "Historical conversation search is unavailable: checkpointer is not configured."
 
     # ---------------------------------------------------------
     # 1. Get all checkpoints belonging to this user
@@ -33,44 +30,77 @@ async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
 
     checkpoints  = [checkpoint async for checkpoint in checkpointer.alist(None, filter={"user_id": user_id})]
 
+    #checkpoints = [checkpoint async for checkpoint in checkpointer.alist(None)]
+    
     if not checkpoints:
-            return f"No previous conversation history found for user '{user_id}'."
+        return f"No previous conversation history found for user '{user_id}'."
 
     # ---------------------------------------------------------
-    # 2. Group checkpoints by thread
+    # 2. Group checkpoints by execution
     # ---------------------------------------------------------
 
-    threads = {}
+    executions = {}
 
     for checkpoint in checkpoints:
-        thread_id = checkpoint.config["configurable"]['thread_id']
-        existing = threads.get(thread_id)
+        execution_id = checkpoint.metadata.get("execution_id")
+        if not execution_id:
+            continue
+        existing = executions.get(execution_id)
 
         if existing is None:
-              threads[thread_id] = checkpoint
+            executions[execution_id] = checkpoint
 
         else:
             existing_step = existing.metadata.get("step",-1)
             current_step = checkpoint.metadata.get("step", -1)
             if current_step > existing_step:
-                threads[thread_id] = checkpoint
+                executions[execution_id] = checkpoint
 
     # ---------------------------------------------------------
-    # 3. Inspect latest checkpoint from each historical thread
+    # 3. Inspect latest checkpoint from each historical execution
     # ---------------------------------------------------------
     historical_executions = []
 
-    for thread_id, checkpoint in threads.items():
-        channel_values = checkpoint.checkpoint.get("channel_values",{})
+    print("EXECUTIONS:")
+
+    for execution_id, checkpoint in executions.items():
+
+        channel_values = checkpoint.checkpoint.get("channel_values", {})
+        print(checkpoint.checkpoint.get("channel_values", {}))
+
+        '''
+        print("====================================")
+        print("THREAD ID:", checkpoint.config["configurable"]["thread_id"])
+        print("CHECKPOINT ID:", checkpoint.config["configurable"].get("checkpoint_id"))
+        print("METADATA:", checkpoint.metadata)
+        print("====================================")
+        print("\nCHECKPOINT KEYS:")
+        print(checkpoint.checkpoint.keys())
+        print("====================================")
+        print("\nCHANNEL VALUES KEYS:")
+        print(checkpoint.checkpoint.get("channel_values", {}).keys())
+        print("====================================")
+        print("\nFULL CHANNEL VALUES:")
+        print(checkpoint.checkpoint.get("channel_values", {}))
+        print("====================================")
+        print("HISTORICAL EXECUTION:", execution_id)
+        print("HISTORICAL STEP:", checkpoint.metadata.get("step"))
+        print("HISTORICAL TASK:", channel_values.get("user_request"))
+        print("====================================")
+        '''
+
+
+        channel_values = checkpoint.checkpoint.get("channel_values", {})
         artifacts_id = channel_values.get("artifacts_id")
-        task = channel_values.get("task","")
-        agent = channel_values.get("agent","")
-        route_id = channel_values.get("route_id","")
-        messages = channel_values.get("messages",[])
+        task = channel_values.get("user_request", "")
+        agent = channel_values.get("agent", "")
+        route_id = channel_values.get("route_id", "")
+        messages = channel_values.get("messages", [])
 
         historical_executions.append(
             {
-                "thread_id": thread_id,
+                "execution_id": execution_id,
+                "thread_id": checkpoint.config["configurable"]["thread_id"],
                 "step": checkpoint.metadata.get("step"),
                 "task": task,
                 "agent": agent,
@@ -79,7 +109,6 @@ async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
                 "artifacts_id": artifacts_id,
             }
         )
-
 
     # ---------------------------------------------------------
     # 4. Simple relevance matching
@@ -105,7 +134,6 @@ async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
         matched_words = [word for word in query_words if word in searchable_text]
 
         if matched_words:
-            execution["matched_words"] = matched_words
             matched_executions.append(execution)
 
     if not matched_executions:
@@ -116,19 +144,26 @@ async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
     
     # ---------------------------------------------------------
     # 5. Fetch actual AgentOutput from Artifact Store
-    # ------
+    # ---------------------------------------------------------
 
     historical_results = []
+
     for execution in matched_executions:
+
         artifacts_id = execution["artifacts_id"]
         if not artifacts_id:
             continue
 
-        for agent_name,artifact_id in artifacts_id.items():
+        for agent_name, artifact_id in artifacts_id.items():
             try:
-                agent_output = backend.get_agent_output(user_id,artifact_id)
+                agent_output = await backend.get_agent_output(user_id,artifact_id)
+
+                if agent_output is None:
+                    print(f"Artifact {artifact_id} could not be retrieved.")
+                    continue
                 historical_results.append(
-                    {
+                    {     
+                        "execution_id": execution["execution_id"],
                         "thread_id": execution["thread_id"],
                         "task": execution["task"],
                         "agent": agent_name,
@@ -161,5 +196,50 @@ async def search_recent_conversation(query:str, runtime:ToolRuntime) -> str:
             "historical_results": historical_results,
         }
     )
-                  
 
+async def checkpoint_extraction(self,user_id, checkpointer, execution_id):
+    """ To get latest checkpoint"""
+
+    if checkpointer is None:
+        return "Historical conversation search is unavailable: checkpointer is not configured."
+
+    checkpoints  = [checkpoint async for checkpoint in checkpointer.alist(None, filter={"execution_id": execution_id})]
+
+    '''
+    for checkpoint in checkpoints:
+        channel_values = checkpoint.checkpoint.get("channel_values", {})
+
+        messages = channel_values.get("messages", [])
+
+        print(
+            "STEP:", checkpoint.metadata.get("step"),
+            "EXECUTION:", checkpoint.metadata.get("execution_id"),
+            "MESSAGE COUNT:", len(messages),
+            "MESSAGE TYPES:", [type(m).__name__ for m in messages]
+        )
+    '''    
+    if not checkpoints:
+        return f"No previous conversation history found for user '{user_id}'."
+
+    # Find latest checkpoints
+    latest_checkpoint = max(checkpoints, key = lambda checkpoint:checkpoint.metadata.get("step",-1))
+
+    channel_values = latest_checkpoint.checkpoint.get("channel_values",{})
+
+    messages = channel_values.get("messages", [])
+
+    print("========== SELECTED CHECKPOINT ==========")
+    print("STEP:", latest_checkpoint.metadata.get("step"))
+    print("MESSAGE COUNT:", len(messages))
+
+    for i, message in enumerate(messages):
+        print(i, type(message).__name__, getattr(message, "content", None))
+    
+    execution_data = {
+        "execution_id": execution_id,
+        "thread_id": latest_checkpoint.config["configurable"]["thread_id"],
+        "user_request": channel_values.get("user_request", ""),
+        "messages": channel_values.get("messages", []),
+    }
+
+    return execution_data

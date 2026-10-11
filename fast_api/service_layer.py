@@ -4,28 +4,39 @@ from logger.log import setup_logging
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
 from langchain_core.messages import HumanMessage
+from uuid import uuid4
 from config.database_config import DB_URI
+from app.memory.episodic_memory import EpisodicMemory
+from psycopg_pool import AsyncConnectionPool
 log = setup_logging()
 
 class ServiceLayer:
     def __init__(self):
         self.agent_executor = AgentExecutor()
         self.checkpointer = None
+        self.db_pool = None
 
     async def initialize_mcp_checkpointer(self):
         try:
             await self.agent_executor.mcp_manager.start()
 
             # Start async Postgres checkpointer
-            self.agent_executor.checkpointer_context = await self.agent_executor.exit_stack.enter_async_context(AsyncPostgresSaver.from_conn_string(DB_URI))   #as creating a recipe/instruction for a database connection, not necessarily opening the connection yet.
+            self.checkpointer  = await self.agent_executor.exit_stack.enter_async_context(AsyncPostgresSaver.from_conn_string(DB_URI))   #as creating a recipe/instruction for a database connection, not necessarily opening the connection yet.
             #self.checkpointer = await self.checkpointer_context.__aenter__() # Open/initialize this resource and give me the actual checkpointer."
-            await self.agent_executor.checkpointer_context.setup()
-            
-            # Compile graph only after checkpointer is ready
-            self.graph = self.agent_executor.graph.compile(self.agent_executor.checkpointer_context)
+            await self.checkpointer.setup()
 
-            self.checkpointer  = self.agent_executor.checkpointer_context
-            log.info("MCP and Postgress server started")
+            # Episodic memory PostgreSQL pool
+            self.db_pool = AsyncConnectionPool(conninfo=DB_URI,open=False)
+
+            await self.db_pool.open()
+            self.episodic_memory = EpisodicMemory(self.db_pool)
+         
+            # Compile graph only after checkpointer is ready
+            self.graph = self.agent_executor.graph.compile(self.checkpointer)
+
+            log.info("MCP, Postgres checkpointer and episodic memory DB started")
+            print(self.checkpointer)
+
         except Exception:
             log.exception("Error occured while initialize_mcp_checkpointer")
             raise
@@ -42,8 +53,11 @@ class ServiceLayer:
 
     async def initialize_langgraph(self,user_name,thread_id,question):
         try:
-            runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
-            config = {"configurable" : {"thread_id": thread_id}}
+            runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , 
+                                                   backend = self.agent_executor.store_backend,  episodic_memory = self.episodic_memory)
+            execution_id = str(uuid4())
+            log.info("Execution_id: %s",execution_id)
+            config = {"configurable" : {"thread_id": thread_id},   "metadata": {"user_id": user_name, "execution_id" : execution_id}}
 
             log.info("QUESTION RECEIVED BY API: %s", question)
             log.info("========== BEFORE GRAPH AINVOKE ==========")
@@ -67,9 +81,9 @@ class ServiceLayer:
                             "status":"waiting_for_approval",
                             "thread_id": thread_id,
                             "action_requests":interrupt.value["action_requests"],
-                            "review_configs": interrupt.value["review_configs"]
+                            "review_configs": interrupt.value["review_configs"],
+                            "execution_id" : execution_id
                        }
-            
             
             
             log.info("========== AFTER GRAPH AINVOKE ==========")
@@ -82,10 +96,12 @@ class ServiceLayer:
             log.exception("Error while executing LangGraph")
             raise
 
-    async def interrupt_resume(self,decision,thread_id,user_name):
+    async def interrupt_resume(self,decision,thread_id,user_name, execution_id):
         try:
-            runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , backend = self.agent_executor.store_backend)
-            config = {"configurable" : {"thread_id": thread_id}}
+            runtime_context = RuntimeContextSchema(user_id = user_name, checkpointer =  self.checkpointer , 
+                                                   backend = self.agent_executor.store_backend, episodic_memory = self.episodic_memory)
+            
+            config = {"configurable" : {"thread_id": thread_id},   "metadata": {"user_id": user_name, "execution_id" : execution_id}}
 
             log.info("RESUMING GRAPH: thread_id=%s decision=%s", thread_id, decision)
             
@@ -108,7 +124,8 @@ class ServiceLayer:
                     "status": "waiting_for_approval",
                     "thread_id": thread_id,
                     "action_requests": interrupt.value["action_requests"],
-                    "review_configs": interrupt.value["review_configs"]
+                    "review_configs": interrupt.value["review_configs"],
+                    "execution_id":execution_id,
                    }
 
             log.info("========== AFTER GRAPH AINVOKE_POST_Interrupt ==========")

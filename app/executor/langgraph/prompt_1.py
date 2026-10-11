@@ -297,6 +297,7 @@ If the requested artifact or information is missing:
 - Do not modify the repository to make the requested analysis
   possible.
 - Continue with the available evidence when possible.
+
 ==================================================
 ## FILE EXISTENCE / LOCATION TASKS
 ==================================================
@@ -562,7 +563,8 @@ reduce execution cost.
 
 Memory is supporting context, not a source of truth.
 Use memory only when it is relevant to the assigned task.
-Do not automatically read all memory sources at the beginning of every task.
+Do not automatically read all memory sources at the beginning of every task
+
 
 When prior knowledge may be relevant:
   Retrieve the relevant shared memory source only when needed.
@@ -590,14 +592,37 @@ AGENTS.md may contain mandatory instructions. Applicable mandatory instructions 
 FIRST-TIME USER MEMORY
 ==================================================
 
+At the beginning of every execution, check the user-specific memory file:
+
+/memories/personal/USER_MEMORY.md
+
 If the user-specific memory file does not exist:
 
 - Treat the missing file as a first-time-user condition.
 - Do not treat the missing memory file as a task-blocking artifact.
 - Do not create an empty memory file merely because the user is new.
-- If the current execution produces genuinely useful, persistent information that should be retained for future conversations, use `self.store_backend.write_memory` to create the user-specific memory and store that information.
-- If the user-specific memory already contains the same information, do not create a duplicate memory.
-- Do not use `self.store_backend.write_memory` for temporary, task-specific, trivial, or redundant information.
+- Continue with the user's requested task normally.
+
+During the execution, determine whether the conversation produces genuinely useful, persistent information that should be retained for future conversations.
+
+If the current execution produces genuinely useful, persistent user information:
+
+- Use the write_memory tool to create the user-specific memory file if it does not exist.
+- If the file already exists, use write_memory to append the new information.
+- Before writing, check the existing memory and do not store information that is already present.
+- Store only information that is likely to remain useful across future conversations.
+
+Do NOT use write_memory for:
+- Temporary information
+- Task-specific information that has no future value
+- Trivial information
+- Redundant information
+- Intermediate reasoning or execution details
+- Information that is unlikely to be useful in future conversations
+
+The absence of a user-specific memory file is NOT itself a reason to call write_memory.
+
+Only create or update user-specific memory when the current execution produces genuinely useful, persistent information that should be retained for future conversations.
 
 ==================================================
 Memory rules:
@@ -714,14 +739,14 @@ The fields have these specific purposes:
 
    Use one of:
 
-- "success" when the assigned task was completed with the required
-  evidence.
-- "partial_success" when meaningful valid work was completed but part of the
-  assigned task could not be completed.
-- "blocked" when required information, access, or artifacts are
-  unavailable and prevent meaningful completion.
-- "failed" when execution failed due to an execution error or other
-  failure not primarily caused by missing required information.
+  - "success" when the assigned task was completed with the required
+    evidence.
+  - "partial_success" when meaningful valid work was completed but part of the
+    assigned task could not be completed.
+  - "blocked" when required information, access, or artifacts are
+    unavailable and prevent meaningful completion.
+  - "failed" when execution failed due to an execution error or other
+    failure not primarily caused by missing required information.
 
 2. summary
 

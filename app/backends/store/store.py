@@ -11,6 +11,7 @@ from app.artifacts_storage.artifcats_storage import ArtifactStorage
 from app.schemas.agent_output_schema import AgentOutput
 from logger.log import setup_logging
 from langchain.tools import tool
+from langchain.tools import tool, ToolRuntime
 log = setup_logging()
 import asyncio
 
@@ -26,20 +27,16 @@ class backend:
         self.update_defaults()
 
     def update_defaults(self):
-        # Check for memory, if present dont update
-        namespace_memory = ("shared", "memory")
+
+        namespace_memory = ("main_agent", "main_agent_skill")
         key =  "/AGENTS.md"
         path = Path(r"app/executor/langgraph/AGENTS.md")
         item = self.store.get(namespace_memory,key)
-        self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
-        '''
         if not item:
             self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
-        else:
-            pass
-        '''
+     
       
-        # check for Learnings
+        namespace_memory = ("main_agent", "main_agent_learning")
         key =  "/LEARNINGS.md"
         item = self.store.get(namespace_memory,key)
         if not item:
@@ -47,67 +44,56 @@ class backend:
         else:
             pass
 
+        #---------------------------------------------
+
         # check for skills
-        namespace_skills = ("shared","skills")
-        key = "/skills/SKILL.md"
+        namespace_skills = ("sub_agent","sub_agent_skill")
+        key = "/SKILL.md"
         path = Path(r"skills/repository-analysis/SKILL.md")
         item = self.store.get(namespace_skills,key)
+
         if not item:
             self.store.put(namespace_skills , key, create_file_data(path.read_text(encoding='utf-8')))
         else:
             pass
 
+    # -------------------------------------------------------------------------------------
+    def store_backend_main_agent_skill(self):
+        return StoreBackend(namespace = lambda _rt: ("main_agent", "main_agent_skill"), store = self.store)
 
-    def store_backend_memory_shared(self):
-        return StoreBackend(namespace = lambda _rt: ("shared", "memory"), store = self.store)
+    def store_backend_main_agent_learning(self):
+        return StoreBackend(namespace = lambda _rt: ("main_agent", "main_agent_learning"), store = self.store)
+
+    def store_backend_sub_agent_skills(self):
+        return StoreBackend(namespace = lambda _rt: ("sub_agent", "sub_agent_skill"), store = self.store)
+
+    def policy_wrapper(self):
+
+        main_agent_skill_policy_wrapper = PolicyWrapper(self.store_backend_main_agent_skill(), deny_prefix = ["/AGENTS.md"])
+
+        main_agent_learning_policy_wrapper = PolicyWrapper(self.store_backend_main_agent_learning(),)
+
+        subagent_skills_policy_wrapper = PolicyWrapper(self.store_backend_sub_agent_skills(), deny_prefix = ["/SKILL.md"])
+
+        return main_agent_skill_policy_wrapper, main_agent_learning_policy_wrapper, subagent_skills_policy_wrapper
+
+    # --------------------------------------------------------------------------------------------------------------------------
 
     def store_backend_memory_personal(self):
         return StoreBackend(namespace = lambda rt: ("users", rt.context.user_id,), store = self.store)
 
-    def store_backend_skills_shared(self):
-        return StoreBackend(namespace = lambda _rt: ("shared", "skills"), store = self.store)
+    #--------------------Storing Agent Output----------------------------------------------------------------------------------------------
 
-    def store_agent_output(self,agent, user_id, agent_output):
+    def store_agent_output(self,agent, user_id, agent_output, execution_id):
         artifact_id = str(uuid4())
-        storage_key = f"{agent}/{user_id}/{artifact_id}"
+        storage_key = f"{user_id}/{execution_id}/{agent}/{artifact_id}"
 
         #self.artifact_storage.local_save(storage_key,agent_output)
-        self.artifact_storage.blob_save(storage_key,agent_output, self.blob_storage)
+        self.artifact_storage.blob_save(storage_key, agent_output, self.blob_storage)
 
-        artifact_record = ArtifactRecord(artifact_id = artifact_id , user_id = user_id, agent = agent, storage_key = storage_key)
+        artifact_record = ArtifactRecord(artifact_id = artifact_id , user_id = user_id, agent = agent, storage_key = storage_key, execution_id=execution_id)
         self.store_artifact_record_SQL(artifact_record)
         return artifact_record
-
-    async def get_agent_output(self, user_id, artifact_id,):
-        namespace = ("artifacts", user_id)
-        key = artifact_id
-        item  = await self.store.aget(namespace,key)
-        if not item:
-            return None
-        try:
-            artifact_record = item.value
-        except Exception:
-            artifact_record = item.value["content"]
-        storage_key = artifact_record.get("storage_key",None)
-        if not storage_key:
-            return None
-        
-        #data = self.artifact_storage.get_local(storage_key)
-
-        print("1. Before get_from_blob")
-        print("storage_key:", storage_key)
-        print("blob_storage:", self.blob_storage)
-        
-        data = await asyncio.to_thread(self.artifact_storage.get_from_blob, storage_key, self.blob_storage)
-
-        print("2. After get_from_blob")
-        print("data type:", type(data))
-        print("data length:", len(data) if data else None)
-
-        print("3. Before model_validate_json")
-
-
-        return AgentOutput.model_validate_json(data) # Convert to object AgentOutput
 
 
     def store_artifact_record_SQL(self,artifact_record):
@@ -115,31 +101,76 @@ class backend:
         key = artifact_record.artifact_id
         self.store.put(namespace, key, artifact_record.model_dump()) # Pydantic object → Python dictionary
 
+    #-------------------------Storing Agent Output---------------------------------------------------------------------------------------
+
+    
+    async def get_agent_output(self, user_id, artifact_id,):
+        namespace = ("artifacts", user_id)
+        key = artifact_id
+        item  = await self.store.aget(namespace,key)
+
+        print("ARTIFACT LOOKUP")
+        print("namespace:", namespace)
+        print("key:", key)
+        print("item:", item)
+
+        if not item:
+            return None
+        try:
+            artifact_record = item.value
+        except Exception:
+            artifact_record = item.value["content"]
+
+        storage_key = artifact_record.get("storage_key",None)
+
+        if not storage_key:
+            return None
+        
+        #data = self.artifact_storage.get_local(storage_key)
+
+        #print("1. Before get_from_blob")
+        #print("storage_key:", storage_key)
+        #print("blob_storage:", self.blob_storage)
+        
+        data = await asyncio.to_thread(self.artifact_storage.get_from_blob, storage_key, self.blob_storage)
+
+        #print("2. After get_from_blob")
+        #print("data type:", type(data))
+        #print("data length:", len(data) if data else None)
+
+        #print("3. Before model_validate_json")
+
+
+        return AgentOutput.model_validate_json(data) # Convert to object AgentOutput
+
+
     def return_store(self):
         return self.store
 
-    def policy_wrapper(self):
-        memory_policy_wrapper = PolicyWrapper(self.store_backend_memory_shared(), deny_prefix=[ "/memories/shared/AGENTS.md"])
-        skills_policy_wrapper = PolicyWrapper(self.store_backend_skills_shared(), deny_prefix=[ "/skills/repository-analysis"])
 
-        return memory_policy_wrapper, skills_policy_wrapper
+    #----------------------------------------------------------------------------------
 
-    def read_agent_learning(self):
-        namespace = ("shared", "memory")
+    async def read_agent_learning(self):
+        """ Used to read the existing learning from store """
+        namespace = ("main_agent", "main_agent_learning")
         key = "/LEARNINGS.md"
-        item = self.store.get(namespace, key)
+        item = await self.store.aget(namespace, key)
         data = item.value["content"]
         if data:
             return data
         else:
             return None
 
-    def write_learning(self,updated_learning):
-        namespace = ("shared", "memory")
+    async def write_learning(self,updated_learning):
+        """ Used to update new learning in the store"""
+        namespace = ("main_agent", "main_agent_learning")
         key = "/LEARNINGS.md"
-        self.store.put(namespace, key,create_file_data(updated_learning))
+        await self.store.aput(namespace, key,create_file_data(updated_learning))
+
+#----------------------------------------------------------------------------------
 
     def read_user_personal_memory(self,user_id):
+        '''This is not requuired'''
         namespace = ("users", user_id)
         key = f"/{user_id}_USER_MEMORY.md"
         item = self.store.get(namespace,key)
@@ -152,7 +183,7 @@ class backend:
         else:
             return None
 
-    
+# ----------------------Writing user memory ----------------------------------
     async def write_user_personal_memory(self,user_id:str, agent_learning:str):
         """Store important user information for future conversations."""
         namespace = ("users", user_id)
@@ -191,16 +222,30 @@ class backend:
         else:
             updated_content = new_memory
 
-        self.store.aput(namespace, key,create_file_data(updated_content))
+        await self.store.aput(namespace, key,create_file_data(updated_content))
 
         log.info("%s memory updated", user_id)
 
         return "Memory stored successfully."
 
-    @tool
-    async def write_memory(self,memory: str):
-        """Store important information about the user for future conversations."""
-        return await self.write_user_personal_memory(user_id=self.user_id, agent_learning=memory)
+    def get_write_memory_tool(self):
+
+        @tool
+        async def write_memory(memory: str, runtime: ToolRuntime):
+            """Store important information about the user for future conversations."""
+
+            user_id = runtime.context.user_id
+
+            return await self.write_user_personal_memory(
+                user_id=user_id,
+                agent_learning=memory
+            )
+
+        return write_memory
+
+    # ----------------------Writing user memory ----------------------------------
+
+
         
     def close(self):
         self.store_context.__exit__(None, None, None)
@@ -228,7 +273,11 @@ def get_agent_output(self, user_id, artifact_id,):
     
         
 
-
+@tool
+async def write_memory(self,memory: str, runtime:ToolRuntime):
+    """Store important information about the user for future conversations."""
+    user_id = runtime.context.user_id
+    return await self.write_user_personal_memory(user_id = user_id, agent_learning=memory)
 
 
 

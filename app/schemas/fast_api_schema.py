@@ -9,3 +9,4 @@ class ResumeRequest(BaseModel):
     user_name: str
     thread_id: str
     decision: str
+    execution_id: str

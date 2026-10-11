@@ -18,7 +18,6 @@ class CustomState(AgentState):
     ready_routes: list[dict[str, str]]
     successful_route_executed:Annotated[dict[str, str], merge_or_reset]
     failed_route_executed: Annotated[dict[str, str], merge_or_reset]
-
     current_route: dict[str, str]
 
 
@@ -35,12 +34,14 @@ class RuntimeContextSchema():
     user_id:str
     checkpointer:Any|None = None
     backend:object|None = None
+    episodic_memory:object|None = None
 
 class ArtifactRecord(BaseModel):
     artifact_id:str
     user_id:str
     agent:str
     storage_key:str
+    execution_id:str
 
 
 

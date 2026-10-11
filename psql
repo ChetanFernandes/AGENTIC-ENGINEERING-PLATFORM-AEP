@@ -1,0 +1,35 @@
+CREATE TABLE episodic_memory_embeddings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    user_request TEXT,
+    agent TEXT,
+    messages JSONB,
+    artifacts_id JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    embedding VECTOR(1536)
+)
+
+SELECT * FROM episodic_memory_embedding
+
+
+SELECT column_name, data_type FROM information_schema.columns
+WHERE table_name = 'episodic_memory_embeddings'
+ORDER BY ordinal_position;
+
+
+CREATE INDEX episodic_memory_embedding_idx
+ON episodic_memory_embeddings
+USING hnsw (embedding vector_cosine_ops);
+
+ALTER TABLE episodic_memory_embeddings ADD CONSTRAINT unique_execution_id UNIQUE (execution_id); 
+SELECT constraint_name FROM information_schema.table_constraints WHERE table_name = 'episodic_memory_embeddings' AND constraint_name = 'unique_execution_id';
+
+
+CREATE INDEX episodic_memory_user_id_idx ON episodic_memory_embeddings (user_id)
+SELECT indexname indexdef FROM pg_indexes WHERE tablename = 'episodic_memory_embeddings';
+
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = 'public'
+ORDER BY table_name;

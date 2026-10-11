@@ -150,7 +150,6 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
         structured_response = result.get("structured_response")
 
         if isinstance(structured_response, AgentOutput):
-            log.info("Agent returned output in structured response format")
             return structured_response
 
         if structured_response is not None:

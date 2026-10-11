@@ -310,7 +310,7 @@ class state_Tool_Tracking(AgentMiddleware):
         return response
 
       
-    def after_agent(self,state:CustomState):
+    async def aafter_agent(self,state:CustomState):
         try:
 
             print("\n")
@@ -319,12 +319,11 @@ class state_Tool_Tracking(AgentMiddleware):
 
             log.info("Exection_events:%s",self.execution_events)
 
-            # Update Learning.MD
             existing_learning = ""
 
             try:
 
-                existing_learning =  self.store_backend.read_agent_learning()
+                existing_learning =  await self.store_backend.read_agent_learning()
 
                 if existing_learning is None:
                     existing_learning = ""
@@ -335,26 +334,28 @@ class state_Tool_Tracking(AgentMiddleware):
                 log.info("LEARNINGS.md not available yet")
 
             except Exception:
-                log.info("learning.MD not availabe yet")
+                log.info("learnings.MD not availabe yet")
 
             learning = extract_learning(self.execution_events, existing_learning, llm_openai_mini, LearningOutput)
 
-            log.info("Successfully extracted new learning")
+            log.info("Successfully extracted new learning:%s", learning)
 
-            log.info("Learning extraction completed")
 
             if learning.has_learning and learning.learning:
 
                 new_learning = learning.learning.strip()
 
                 if existing_learning.strip():
+
                     updated_learning = (
                                     f"{existing_learning.rstrip()}\n\n{new_learning}")
                 else:
                     updated_learning = new_learning
 
                 log.info("Updating new learning stored in the store")
-                self.store_backend.write_learning(updated_learning)
+
+                await self.store_backend.write_learning(updated_learning)
+
                 log.info("New learning stored in the store")
             else:
                 pass

@@ -1,6 +1,5 @@
 from deepagents.backends.protocol import (BackendProtocol, WriteResult, EditResult, LsResult, ReadResult, GrepResult, GlobResult)
 
-
 class PolicyWrapper(BackendProtocol):
     def __init__(self,inner:BackendProtocol, deny_prefix:list[str] | None = None):
         self.inner = inner
@@ -36,7 +35,10 @@ class PolicyWrapper(BackendProtocol):
 
     def download_files(self, paths: list[str]):
         print("POLICY DOWNLOAD PATHS:", paths)
-        return self.inner.download_files(paths)
+        result = self.inner.download_files(paths)
+        print("POLICY DOWNLOAD RESULT:", repr(result))
+
+        return result
 
 
 

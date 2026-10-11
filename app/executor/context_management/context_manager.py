@@ -36,42 +36,45 @@ class ContextManager():
             for source_agent in allowed_agent_sources:
 
                 artifacts_id = state["artifacts_id"].get(source_agent)
-                print("%s for %s", artifacts_id, source_agent)
-
+           
                 if artifacts_id:
                     try:
+                        log.info("Fetching output from blob from agent -> %s",source_agent)
                         allowed_context_data = await store_backend.get_agent_output(user_id, artifacts_id)
                         allowed_context[source_agent] = allowed_context_data
+                        log.info("Output fetched from blob:%s",allowed_context_data)
                         
                     except Exception:
-                        log.exception("Error while extracting context from allowed sources")
+                        log.exception("Error while extracting context from agent -> %s", source_agent)
 
                 else:
                     log.info("%s not yet executed",source_agent)
 
             optional_context = {}
 
-            for source_agent in optional_agent_sources:
+            for optional_agent in optional_agent_sources:
 
-                artifacts_id = state["artifacts_id"].get(source_agent)
+                artifacts_id = state["artifacts_id"].get(optional_agent)
 
                 if artifacts_id:
                     try:
+                        log.info("Fetching output from blob from agent -> %s",optional_agent)
                         optional_context_data = await store_backend.get_agent_output(user_id, artifacts_id)
-                        optional_context[source_agent] = optional_context_data
+                        optional_context[optional_agent] = optional_context_data
+                        log.info("Output fetched from blob:%s",optional_context_data)
 
                     except Exception:
-                        log.exception("Error while extracting context from optional sources")
+                        log.exception("Error while extracting context from agent -> %s", optional_agent)
 
                 else:
-                    log.info("%s not yet executed",source_agent)
+                    log.info("%s not yet executed", optional_agent)
 
 
             if allowed_context or optional_context:
 
                 final_context_data = await self.context_relevance.select_relevant_context(task, allowed_context, optional_context)
 
-                #log.info("Extracting context completed for %s, content:%s", agent, pformat(final_context_data))
+                log.info("Extracting context completed for %s, content:%s", agent, pformat(final_context_data))
 
                 return Context(context = final_context_data)
 

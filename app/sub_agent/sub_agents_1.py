@@ -1,6 +1,4 @@
 from config.llm_config import llm_openai
-from app.schemas.agent_output_schema import AgentOutput
-
 
 sub_agent_system_prompt = """
 ==================================================
@@ -217,7 +215,7 @@ def sub_agent_caller():
         ),
         "system_prompt": sub_agent_system_prompt,
         "model": llm_openai,
-        "skills": ["/skills/repository-analysis/"],
+        "skills": ["/sub_agent_skills/SKILL.md"],
     }
 
     return sub_agent

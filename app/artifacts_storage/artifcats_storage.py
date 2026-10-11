@@ -34,9 +34,9 @@ class ArtifactStorage(Artifacts_Storage):
         #with open(file_path,"w",encoding="utf-8") as file:
             #file.write(data)
 
-    def blob_save(self,storage_key,data,blob_storage:BlobStorage):
+    def blob_save(self,storage_key, data, blob_storage:BlobStorage):
         data = data.model_dump_json()
-        blob_storage.save_file(storage_key,data)
+        blob_storage.save_file(storage_key, data)
        
     def get_local(self,storage_key):
         file_path = self.path / storage_key

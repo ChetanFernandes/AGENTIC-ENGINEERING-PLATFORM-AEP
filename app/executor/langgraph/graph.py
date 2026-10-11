@@ -9,11 +9,11 @@ from app.executor.langgraph.prompt_1 import main_agent_system_prompt
 from app.middleware.tool_call_tracking_middleware.tool_tracking import state_Tool_Tracking
 from app.middleware.summarization_middleware.summarization_middleware import create_summarization_middleware
 from app.middleware.tool_retry_middleware.tool_retry import (
-    tool_error_retry_middleware, model_error_middleware, model_call_limit_middleware,tool_call_limit_middleware)
+    tool_error_retry_middleware, model_error_middleware, model_call_limit_middleware, tool_call_limit_middleware)
 from app.middleware.context_editing_middleware.context_editing import context_editing_middleware
 from app.sub_agent.sub_agents_1 import sub_agent_caller
-from deepagents.backends import CompositeBackend, LangSmithSandbox
-from consolidation_agent.consolidation_agent import search_recent_conversation
+from deepagents.backends import CompositeBackend
+from consolidation_agent.consolidation_agent_1 import search_recent_conversation
 from deepagents import FilesystemPermission
 from langgraph.runtime import Runtime
 from langchain_core.runnables import RunnableConfig
@@ -33,6 +33,7 @@ from contextlib import AsyncExitStack
 from langgraph.types import Send
 import asyncio
 from langchain_core.messages import HumanMessage
+from app.memory.episodic_memory import EpisodicMemory
 from pprint import pformat
 from pprint import pprint
 #from langgraph.checkpoint.memory import MemorySaver
@@ -67,7 +68,7 @@ class AgentExecutor:
             self.graph.add_node("deep_agent_executor", self.deep_agent_executor)
             self.graph.add_node("state_tracking_before_deep_agent_execution",self.state_tracking_before_deep_agent_execution)
             self.graph.add_node("state_tracking_after_deep_agent_execution",self.state_tracking_after_deep_agent_execution)
-            self.graph.add_node("store_tracking_after_deep_agent_execution",self.store_tracking_after_deep_agent_execution)
+            #self.graph.add_node("store_tracking_after_deep_agent_execution",self.store_tracking_after_deep_agent_execution)
             self.graph.add_node("fan_in_routes", self.fan_in_routes)
             self.graph.add_node("end_node", self.end_node)
 
@@ -83,14 +84,12 @@ class AgentExecutor:
             self.graph.add_conditional_edges("state_tracking_before_deep_agent_execution",self.fan_out_routes)
             self.graph.add_edge("deep_agent_executor","fan_in_routes")
             self.graph.add_edge("fan_in_routes","state_tracking_after_deep_agent_execution")
-            self.graph.add_edge("state_tracking_after_deep_agent_execution","store_tracking_after_deep_agent_execution")
-            self.graph.add_edge("store_tracking_after_deep_agent_execution", "orchestrator")
+            self.graph.add_edge("state_tracking_after_deep_agent_execution","orchestrator")
             self.graph.add_edge("end_node", END)
 
 
             #self.checkpointer = MemorySaver()
 
-            self.checkpointer_context = None
             self.store_backend = backend(blob_storage = BlobStorage())
             self.distructive_tools = None
             self.interrupt_on = {}
@@ -98,6 +97,7 @@ class AgentExecutor:
             self.exit_stack = AsyncExitStack()
             self.sandbox_backend = None
             self.ls_sandbox = None
+
 
     except Exception:
         log.exception("Error while initializing graph")
@@ -265,9 +265,8 @@ class AgentExecutor:
             log.info("Context given is -> %s",content)
   
             user_id = runtime.context.user_id
-            user_memory_file = f"/memories/personal/{user_id}_USER_MEMORY.md"
-            #user_memory_file=user_memory_file
-            system_prompt = main_agent_system_prompt                          
+            user_memory_file = f"/user_memories/USER_MEMORY.md"
+            system_prompt = main_agent_system_prompt.replace("{user_memory_file}", user_memory_file)                     
             session_entry = await self.mcp_manager.acquire("github")
             mcp_tools = session_entry.tools
             log.info("mcp_tools:%s",mcp_tools)
@@ -289,37 +288,41 @@ class AgentExecutor:
                 log.info("For second round self interrput not called -> %s",self.interrupt_on )
             
 
-            memory_wrapper, skills_wrapper = self.store_backend.policy_wrapper()
+            main_agent_memory_wrapper, main_agent_learning_wrapper, subagent_skills_wrapper = self.store_backend.policy_wrapper()
         
+            deep_agent = create_deep_agent(
 
-        
-            deep_agent = create_deep_agent(model = llm_openai, 
-                                           backend = CompositeBackend(
-                                                                        default = self.sandbox_backend, 
+                    model = llm_openai, 
+                    backend = CompositeBackend
+                                (
+                                    default = self.sandbox_backend, 
+                                    routes = 
+                                            {         
+                                                "/main_agent_skill/": main_agent_memory_wrapper,
+                                                "/main_agent_learning/": main_agent_learning_wrapper,
+                                                "/user_memories/": self.store_backend.store_backend_memory_personal(), 
+                                                "/sub_agent_skills/": subagent_skills_wrapper, 
+                                            }
+                                ),
 
-                                                                        routes = 
-                                                                                {         
-                                                                                    "/memories/shared/": memory_wrapper,
-                                                                                    "/memories/personal/": self.store_backend.store_backend_memory_personal(), 
-                                                                                    "/skills/repository-analysis/": skills_wrapper, 
-                                                                                }
-                                                                     ),
-
-                                            
-                                            system_prompt = system_prompt, 
-                                            response_format=AgentOutput, 
-                                            middleware=[state_Tool_Tracking(store = self.store_backend.return_store(), backend = self.store_backend), 
-                                                                            create_summarization_middleware(self.sandbox_backend),
-                                                                            context_editing_middleware(),
-                                                                            HumanInTheLoopMiddleware(interrupt_on = self.interrupt_on)], 
-                                                                            #ProviderToolSearchMiddleware(searchable_tools = searchable_tools)],
-                                                                           
-                                            subagents = [sub_agent_caller()],
-                                            store = self.store_backend.return_store() ,
-                                            checkpointer = self.checkpointer_context ,
-                                            tools = mcp_tools + [search_recent_conversation, self.store_backend.write_memory],
-                                            permissions = [ FilesystemPermission(operations=['read','write'], paths=["/memories/personal/", "/memories/shared/LEARNINGS.md"], mode = 'allow'),],
-                                            memory = ["/memories/shared/LEARNINGS.md", "/memories/shared/AGENTS.md" , user_memory_file])
+                    
+                    system_prompt = system_prompt, 
+                    response_format = AgentOutput, 
+                    middleware = [    
+                                    state_Tool_Tracking(store = self.store_backend.return_store(), backend = self.store_backend), 
+                                    create_summarization_middleware(self.sandbox_backend),
+                                    context_editing_middleware(),
+                                    HumanInTheLoopMiddleware(interrupt_on = self.interrupt_on)
+                                 ], 
+                                #ProviderToolSearchMiddleware(searchable_tools = searchable_tools)],
+                                                    
+                    subagents = [sub_agent_caller()],
+                    store = self.store_backend.return_store() ,
+                    checkpointer = runtime.context.checkpointer ,
+                    tools = mcp_tools + [search_recent_conversation, self.store_backend.get_write_memory_tool()],
+                    permissions = [FilesystemPermission(operations=['read','write'], paths=["/user_memories/", "/main_agent_learning/"], mode = 'allow'),],
+                    memory = ["/main_agent_skill/AGENTS.md" , "/main_agent_learning/LEARNINGS.md", "/user_memories/USER_MEMORY.md"]
+                                            )
                                                     
   
             result = await deep_agent.ainvoke(
@@ -342,6 +345,14 @@ class AgentExecutor:
             log.info("========== DEEP AGENT RESPONSE ==========")
             log.info("MESSAGE COUNT: %d", len(messages))
 
+            episodic_memory = runtime.context.episodic_memory
+
+            execution_id = config["metadata"]["execution_id"]
+
+            thread_id = config["configurable"]["thread_id"]
+
+            await episodic_memory.add_execution_history(execution_id=execution_id, messages = messages, user_request = user_question, thread_id=thread_id, user_id = user_id)
+
             for i, msg in enumerate(messages):
                 log.info("MSG[%d] type=%s id=%s content_type=%s",
                     i,
@@ -350,15 +361,11 @@ class AgentExecutor:
                     type(getattr(msg, "content", None)).__name__,
                 )
 
-                log.info("MSG[%d] content=%s",i, str(getattr(msg, "content", ""))[:1000])
+                log.info("MSG[%d] content=%s", i, str(getattr(msg, "content", ""))[:100])
 
             structured_response = result.get("structured_response")
 
             log.info("STRUCTURED RESPONSE TYPE: %s", type(structured_response).__name__)
-
-            log.info("STRUCTURED RESPONSE: %s", str(structured_response)[:2000])
-
-            log.info("Result type:%s", type(result))
 
             log.info("Result keys:%s", result.keys())
 
@@ -368,13 +375,15 @@ class AgentExecutor:
 
             status = agent_output.status.lower()
 
-            artifact_record = self.store_backend.store_agent_output(agent_name, user_id, agent_output )
+            execution_id = config["metadata"]["execution_id"]
+            
+            artifact_record = self.store_backend.store_agent_output(agent_name, user_id, agent_output, execution_id )
 
             if route_is_final and status == "success":
                 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "successful_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 
-            elif route_is_final and status in ("partial_success", "failed","blocked"):
+            elif route_is_final and status in ("partial_success","failed","blocked",):
 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "failed_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 
@@ -474,41 +483,50 @@ class AgentExecutor:
             log.exception("Error occured during execution of node state_tracking_after_deep_agent_execution")
             raise
 
-    def store_tracking_after_deep_agent_execution(self, state:CustomState, runtime:Runtime):
 
+
+    async def end_node(self, state: CustomState, config: RunnableConfig, runtime: Runtime):
         try:
+            execution_id = config["metadata"]["execution_id"]
+            episodic_memory = runtime.context.episodic_memory
+            user_id = runtime.context.user_id
 
-            log.info('Store_contents_post_ready_agent_execution:%s',state["ready_routes"])
+            execution_data = episodic_memory.get_execution_history(execution_id)
 
-            #user_id = runtime.context.user_id
-        
-            #log.info("New_learning_updated in store:%s", self.store_backend.read_agent_learning())
-    
-            #log.info("User_memory_updated ->%s", self.store_backend.read_user_personal_memory(user_id))
+            if execution_data:
+                execution_data = await episodic_memory.recover_execution_history(execution_id)
+                log.info(
+                    "Execution history extracted for execution_id=%s, "
+                    "agent_histories=%d",
+                    execution_id,
+                    len(execution_data.get("messages", []))
+                )
 
-        except Exception:
-            log.exception("Error occured during execution of node store_tracking_after_deep_agent_execution")
-            raise
- 
-    async def end_node(self,state:CustomState):
-        try:
-            #log.info("Workflow completed. Closing MCP manager.")
-            #await self.mcp_manager.close()
+                try:
+                    await episodic_memory.store_execution(execution_data, user_id)
 
-            log.info("Workflow completed. Deleting Sandbox:%s",self.ls_sandbox.name)
+                    # Delete temporary PostgreSQL history only after successful storage
+                    await episodic_memory.delete_in_progress_history(execution_id)
+
+                    # Remove temporary in-memory execution history
+                    episodic_memory.execution_histories.pop(execution_id, None)
+
+                    log.info("Episodic memory stored successfully for execution_id=%s",execution_id)
+
+                except Exception:
+                    log.exception("Failed to store episodic memory for execution_id=%s. " "Continuing workflow.", execution_id)
+            else:
+                log.warning("No execution history found for execution_id=%s",execution_id)
+  
             if self.ls_sandbox:
+                log.info("Workflow completed. Deleting Sandbox:%s", self.ls_sandbox.name)
                 self.client.delete_sandbox(self.ls_sandbox.name)
+
             return state
+
         except Exception:
-            log.exception("Error occured during execution of end_node")
+            log.exception("Error occurred during execution of end_node")
             raise
-        
-
-
-
-
-
-    
 
 
 
@@ -520,62 +538,3 @@ class AgentExecutor:
 
 
 
-
-
-''' 
-
-
-coordinator_messages : list[str] = []
-subagent_handler = []
-
-for name, item in result.interleave("messages","subagents"):
-    if name == "message":
-        print("[corrdiantor]", item.text)
-        coordinator_messages.append(item.text)
-    else:
-        print(f"[{item.name}] started")
-        subagent_handler.append(item)
-        for message in item.messages:
-            print(f"[{item.name}]", message.text)
-        print(f"[{item.name}] status: {item.status}")
-
-
-log.info("Deep agent raw result: %s", pformat(result))
-         
-LangGraph Node
-      ↓
-get_agent(agent_name)
-      ↓
-agent.execute(task)
-      ↓
-AgentOutput
-      ↓
-return state update
-
-State = small information needed to run the workflow.
-Artifact Store = detailed information we want to keep.
-Context = temporary information we give an agent to do its job.
-'''
-
-'''
-deep_agent_executor()
-        │
-        ▼
-   MCP Manager
-        │
-        ├── MCP Server 1
-        ├── MCP Server 2
-        ├── MCP Server 3
-        │
-        ├── connection management
-        ├── connection pooling
-        ├── tool discovery
-        ├── tool caching
-        └── protocol/version handling
-        │
-        ▼
-    MCP Tools
-        │
-        ▼
-create_deep_agent(... tools = MCP tools ...)
-'''
