@@ -134,5 +134,11 @@ AGENT_CONTEXT_POLICY = {
             "optimization",
             "refactoring"
         ]
-    }
+    },
+
+    "general": {
+        "allowed": [],
+        "optional": []
+    },
+
 }

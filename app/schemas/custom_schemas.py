@@ -35,6 +35,7 @@ class RuntimeContextSchema():
     checkpointer:Any|None = None
     backend:object|None = None
     episodic_memory:object|None = None
+    llm_open_ai:object|None = None
 
 class ArtifactRecord(BaseModel):
     artifact_id:str

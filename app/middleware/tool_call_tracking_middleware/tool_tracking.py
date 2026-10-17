@@ -5,10 +5,9 @@ from langchain.messages import ToolMessage
 from langgraph.types import Command
 from langchain.agents.middleware import ModelRequest,ModelResponse,ExtendedModelResponse
 from langchain.messages import ToolMessage,AIMessage
-from config.llm_config import llm_openai_mini
 from pprint import pprint
 import json
-from app.schemas.custom_schemas import CustomState
+from app.schemas.custom_schemas import CustomState, RuntimeContextSchema
 from pydantic import BaseModel
 from app.utilis.utilis import extract_learning
 
@@ -38,6 +37,7 @@ class state_Tool_Tracking(AgentMiddleware):
         print("Deep_agent_state_information_before_agent \n")
         print("_"*50)
 
+
         messages = state.get("messages", [])
         if not messages:
             print("Before_agent: no messages in state")
@@ -49,7 +49,7 @@ class state_Tool_Tracking(AgentMiddleware):
         parts = content.split("Task:", 1)
         human_message = parts[0].strip()
         task_and_context = parts[1]
-        task,relevant_context = task_and_context.split("Relevant Context from Previous Agents:",1)
+        task, relevant_context = task_and_context.split("Relevant Context from Previous Agents:",1)
 
         human_message = human_message.removeprefix("messages:").strip()
         task = task.strip()
@@ -158,7 +158,6 @@ class state_Tool_Tracking(AgentMiddleware):
         # Case 1: ToolMessage
         # ---------------------------------------------------------
         if isinstance(last_message, ToolMessage):
-            print("Message is ToolMessage")
             print("\nTOOL MESSAGE CONTENT:")
             print(last_message.content)
             print("-" * 50)
@@ -167,7 +166,6 @@ class state_Tool_Tracking(AgentMiddleware):
         # CASE 2: AIMessage
         # ============================================================
         elif isinstance(last_message,AIMessage):
-            print("Message is AIMessage")
             content = last_message.content
             # --------------------------------------------------------
             # AIMessage -> string
@@ -208,9 +206,6 @@ class state_Tool_Tracking(AgentMiddleware):
             if texts:
                 print("\n AI Response \n")
                 print("\n".join(texts))
-
-            if found_tool_call:
-                print("\nLLM called tool(s)")
 
             if not texts and not found_tool_call:
 
@@ -260,14 +255,13 @@ class state_Tool_Tracking(AgentMiddleware):
       
     async def awrap_tool_call(self, request:ToolCallRequest, handler:Callable[[ToolCallRequest],  ToolMessage | Command[Any]] ) -> ToolMessage | Command[Any]:
 
-        print("*"*50)
-
+        print("*"*50)   
         print("Tool_call_request_made_by_LLM\n")
         print("*"*50)
 
         print("Tool_name ->", request.tool_call['name'])
         print("Tool_arguments ->",request.tool_call['args'])
-        print("Tool_call_id ->", request.tool_call["id"])
+        #print("Tool_call_id ->", request.tool_call["id"])
         print("Tool_call_type ->", request.tool_call["type"])
         print("\n")
 
@@ -290,27 +284,26 @@ class state_Tool_Tracking(AgentMiddleware):
 
         if isinstance(response, ToolMessage):
             print("Tool call status ->",response.status)
-            print("Tool_response -> \n",str(response.content[:500]))
-        
-            self.execution_events.append({  
-                                            "type" : "tool_result",
-                                            "tool":   response.name or request.tool_call["name"],
-                                            "status": response.status,
-                                            "result": response.content
-                                        })
-        else:
-            self.execution_events.append({
-            "type": "tool_result",
-            "tool": request.tool_call["name"],
-            "status": "unknown",
-            "result": repr(response)
-        })
+            print("Tool_response -> \n",str(response.content[:200]))
+            if response.status == "error":
+                self.execution_events.append({  
+                                                "type" : "tool_result",
+                                                "tool":   response.name or request.tool_call["name"],
+                                                "status": response.status,
+                                            })
+            else:
+                self.execution_events.append({
+                "type": "tool_result",
+                "tool": request.tool_call["name"],
+                "status": "unknown",
+                "result": repr(response)
+            })
 
         
         return response
 
       
-    async def aafter_agent(self,state:CustomState):
+    async def aafter_agent(self,state:CustomState, runtime:RuntimeContextSchema):
         try:
 
             print("\n")
@@ -331,12 +324,12 @@ class state_Tool_Tracking(AgentMiddleware):
                 log.info("Successfully extracted existing learning")
 
             except FileNotFoundError:
-                log.info("LEARNINGS.md not available yet")
+                log.info("SKILL.md not available yet")
 
             except Exception:
-                log.info("learnings.MD not availabe yet")
+                log.info("SKILL.MD not availabe yet")
 
-            learning = extract_learning(self.execution_events, existing_learning, llm_openai_mini, LearningOutput)
+            learning = extract_learning(self.execution_events, existing_learning, runtime.context.llm_open_ai, LearningOutput)
 
             log.info("Successfully extracted new learning:%s", learning)
 
@@ -379,14 +372,3 @@ after_agent	                    Inspect the final agent state/result
 '''
 
 
-'''
-    ai_message = request.state["messages"][-1]
-    tool_call =  ai_message.tool_calls[0]
-    if tool_call["name"] == "task":
-        desc = tool_call["args"]["description"]
-        new_message = ("Repo link - 'https://github.com/ChetanFernandes/Advanced-Agentic-Multimodal-RAG'."
-                    "Clone this repo under folder - /workspace." 
-                    "Dont search for repo under /workspace.")
-    tool_call["args"]["description"] = desc + "\n" + new_message 
-
-'''

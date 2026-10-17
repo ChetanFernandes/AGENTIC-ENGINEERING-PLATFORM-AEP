@@ -1,0 +1,2 @@
+streamlit
+uuid_utils==0.17.0

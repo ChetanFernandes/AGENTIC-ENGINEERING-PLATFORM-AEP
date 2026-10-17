@@ -29,7 +29,8 @@ async def lifespan(app):
     finally:
         log.info("Application shutting down. Closing MCP manager.")
         await service_layer.agent_executor.mcp_manager.close()
-        await service_layer.db_pool.close()
+        if service_layer.db_pool is not None:
+            await service_layer.db_pool.close()
         log.info("MCP manager closed.")
 
 
@@ -58,7 +59,7 @@ async def user_input(data:ChatRequest):
 @app.post('/resume')
 async def interrupt_resume(data:ResumeRequest):
     try:
-        return await service_layer.interrupt_resume(data.decision, data.thread_id, data.user_name, data.execution_id)
+        return await service_layer.interrupt_resume(data.decisions, data.thread_id, data.user_name, data.execution_id)
     except Exception:
         log.exception("Error while processing the interruptrequest")
         raise

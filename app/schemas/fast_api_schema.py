@@ -8,5 +8,6 @@ class ChatRequest(BaseModel):
 class ResumeRequest(BaseModel):
     user_name: str
     thread_id: str
-    decision: str
+    decisions: list[dict]
     execution_id: str
+   

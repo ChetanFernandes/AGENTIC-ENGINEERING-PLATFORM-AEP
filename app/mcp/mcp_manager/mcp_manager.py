@@ -1,17 +1,17 @@
 from langchain.mcp import MCPAdapter
 import asyncio
 from contextlib import AsyncExitStack
-from dotenv import load_dotenv
-load_dotenv()
 from dataclasses import dataclass
 from fastmcp import Client
 import os
-from dotenv import load_dotenv
-load_dotenv()
-token = os.getenv("GITHUB_ACCESS_TOKEN")
 from fastmcp.client.group import ClientGroup
+from fastmcp.client.auth import BearerAuth
+
 from logger.log import setup_logging
 log = setup_logging()
+
+from dotenv import load_dotenv
+load_dotenv()
 
 @dataclass
 class MCPSessionEntry():
@@ -31,7 +31,20 @@ class MCPManager():
         self.pool_size = pool_size
 
         def create_github_client():
-            return Client("https://api.githubcopilot.com/mcp/", auth=token,  mode="auto")
+            try:
+                token = os.getenv("GITHUB_ACCESS_TOKEN")
+                log.info(
+                    "GitHub MCP auth diagnostic | token_present=%s | token_length=%s",
+                    bool(token),
+                    len(token) if token else 0,
+                )
+                if not token:
+                    raise ValueError("GITHUB_ACCESS_TOKEN is not configured")
+
+                return Client("https://api.githubcopilot.com/mcp/", auth=BearerAuth(token),  mode="auto")
+            
+            except Exception:
+                log.exception("MCP_initilozation_failed")
         
         self.client_factories = {"github_1": create_github_client, "github_2": create_github_client,}
 
@@ -52,36 +65,41 @@ class MCPManager():
 
 
     async def _create_session(self,server_name:str) -> MCPSessionEntry:
-        log.info("MCP SESSION CREATE START | server=%s", server_name)
+        try:
+            log.info("MCP SESSION CREATE START | server=%s", server_name)
 
-        # Create a NEW Client for every pool entry
-        client = self.client_factories[server_name]()
+            # Create a NEW Client for every pool entry
+            client = self.client_factories[server_name]()
 
-        # Each connection owns its own lifecycle
-        exit_stack = AsyncExitStack()
+            # Each connection owns its own lifecycle
+            exit_stack = AsyncExitStack()
 
-        adapter = MCPAdapter(client)
+            adapter = MCPAdapter(client)
 
-        session = await exit_stack.enter_async_context(adapter)
+            session = await exit_stack.enter_async_context(adapter)
 
-        #Discover tools only once per server
-        if server_name not in self.tools_cache:
-            tools = await session.list_tools()
-            self.tools_cache[server_name] = tools
-        else:
-            tools = self.tools_cache[server_name]
+            #Discover tools only once per server
+            if server_name not in self.tools_cache:
+                tools = await session.list_tools()
+                self.tools_cache[server_name] = tools
+            else:
+                tools = self.tools_cache[server_name]
 
-        log.info("MCP SESSION CREATE SUCCESS | server=%s",server_name)
+            log.info("MCP SESSION CREATE SUCCESS | server=%s",server_name)
+         
+            return MCPSessionEntry(
+                server_name = server_name,
+                client=client,
+                adapter=adapter,
+                session=session,
+                tools=tools,
+                protocol_version=client.protocol_version,
+                exit_stack=exit_stack
+            )
 
-        return MCPSessionEntry(
-            server_name = server_name,
-            client=client,
-            adapter=adapter,
-            session=session,
-            tools=tools,
-            protocol_version=client.protocol_version,
-            exit_stack=exit_stack
-        )
+        except Exception:
+            log.exception("MCP SESSION CREATE FAILED | server=%s", server_name,)
+            raise
 
 
     async def start(self):

@@ -17,7 +17,7 @@ class EpisodicMemory:
 
             # Human Message
             if message_type == "HumanMessage":
-                normalized.append(f"User: {message.content}")
+                normalized.append(f"Router_Request: {message.content}")
 
             # AI Message
             elif message_type == "AIMessage":
@@ -44,8 +44,8 @@ class EpisodicMemory:
                             arguments = block.get("arguments","")
 
                             text_parts.append(
-                                            f"Function_call : {tool_name}\n"
-                                            f"Arguments:{arguments}"
+                                            f"Tool_called_by_LLM : {tool_name}\n"
+                                            f"Arguments_passed_by_LLM_to_tool:{arguments}"
                             )
 
                         # Preserve ordinary text output
@@ -60,28 +60,43 @@ class EpisodicMemory:
                 final_content = "\n".join(text_parts).strip()
 
                 if final_content:
-                    normalized.append(f"Agent : {final_content}")
+                    normalized.append(f"Action taken by llm to router task : {final_content}")
 
                 # Preserve tool-call names when available
                 tool_calls = getattr(message, "tool_calls", None)
 
                 if tool_calls:
                     tool_names = [tool_call.get("name","unknown") for tool_call in tool_calls]
+                    log.info("Tool_names_called%s",tool_names)
                     normalized.append(f"Tools Called: {', '.join(tool_names)}")
 
             # Tool result
             elif message_type == "ToolMessage":
                 tool_name = getattr(message,"name","")
-                content = message.content
                 tool_message = ""
-                if isinstance(content,list):
-                    text_parts = [block['text'] for block in content if isinstance(block,dict) and block.get("type") == 'text' and block.get("text")]
-                    tool_message = "\n".join(text_parts)
+                if message.status == 'success':
+                    tool_message = (f"Tool_Execution_status -> 'success' ")
+    
+                    #content = message.content
+                    #tool_message = ""
+                    #if isinstance(content,list):
+                        #text_parts = [block['text'] for block in content if isinstance(block,dict) and block.get("type") == 'text' and block.get("text")]
+                        #tool_message = "\n".join(text_parts)
+            
+                    #elif isinstance(content, str):
+                        #tool_message = content
 
-                elif isinstance(content, str):
-                    tool_message = content
+                elif message.status == 'error':
+                    content = message.content
+                    if isinstance(content,list):
+                        text_parts = [block['text'] for block in content if isinstance(block,dict) and block.get("type") == 'text' and block.get("text")]
+                        tool_message = "\n".join(text_parts)
 
-                normalized.append(f"Tool result ({tool_name}): {tool_message}")
+                    elif isinstance(content, str):
+                        tool_message = ("Tool_Execution_status -> 'error'\n"
+                                        f"Failure_reason -> {content}")
+
+                normalized.append("Tool result -> %s" % tool_message.strip())
 
             else:
                 normalized.append(f"{message_type}: {message.content}")
@@ -92,7 +107,7 @@ class EpisodicMemory:
 
         normalized = self.normalize_message(messages)
 
-        log.info("Normalized_message:%s",normalized)
+        #log.info("Normalized_message:%s",normalized)
 
 
         if execution_id not in self.execution_histories:

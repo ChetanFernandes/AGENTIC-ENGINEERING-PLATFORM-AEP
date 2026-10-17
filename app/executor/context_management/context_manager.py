@@ -1,5 +1,4 @@
 from app.executor.context_management.agent_context_schema import Context
-from app.schemas.custom_schemas import CustomState
 from app.executor.context_management.context_policy import ContextPolicy
 from app.executor.context_management.optional_context_relevance import ContextRelevanceSelector
 #from app.executor.context_management.allowed_context_relevance import content_extraction
@@ -14,7 +13,7 @@ class ContextManager():
         self.context_policy = ContextPolicy()
         self.context_relevance = ContextRelevanceSelector()
 
-    async def build_context(self, agent, task , user_id, store_backend, state) -> Context:
+    async def build_context(self, agent, task , user_id, store_backend, state, llm_openai) -> Context:
         try:
 
             log.info("Building context for agent: %s", agent)
@@ -69,10 +68,11 @@ class ContextManager():
                 else:
                     log.info("%s not yet executed", optional_agent)
 
-
+            log.info("Final allowed context:%s",allowed_context)
+            log.info("Final optional context:%s",optional_context)
             if allowed_context or optional_context:
 
-                final_context_data = await self.context_relevance.select_relevant_context(task, allowed_context, optional_context)
+                final_context_data = await self.context_relevance.select_relevant_context(task, llm_openai, allowed_context, optional_context)
 
                 log.info("Extracting context completed for %s, content:%s", agent, pformat(final_context_data))
 

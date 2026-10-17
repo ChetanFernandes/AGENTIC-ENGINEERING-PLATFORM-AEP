@@ -53,14 +53,15 @@ langchain-ollama
 langsmith[sandbox]
 azure-storage-blob 
 azure-identity
-fastmcp[server]
-langchain[mcp]>=1.4.0
+fastmcp[server]==4.0.3
+langchain[mcp]==1.4.0
+mcp==2.2.0
 psycopg[binary,pool]
 langgraph-checkpoint-postgres
 fastapi
 portkey_ai 
 fastapi 
 uvicorn
-streamlit
+
 
 

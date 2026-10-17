@@ -37,31 +37,48 @@ SPECIALIST_AGENTS = {
         - architecture-level risks
     """,
 
+  
     "security": """
-        Security analysis.
+        Security analysis and vulnerability identification.
 
         Owns:
-        - threat modeling
-        - SAST
-        - SCA/dependency analysis
-        - secret detection
-        - configuration security
-        - vulnerability identification
-        - security risk assessment
+        - Threat modeling
+        - Static application security testing (SAST)
+        - Software composition and dependency vulnerability analysis (SCA)
+        - Secret detection
+        - Security configuration analysis
+        - Vulnerability identification and severity assessment
+        - Security risk assessment and remediation recommendations
+
+        Primary goal:
+        Identify security weaknesses, explain their impact, and
+        recommend remediation.
+
+        Does not own implementation of security fixes.
+        Code remediation belongs to code_engineering when requested.
+        Security testing and validation belong to testing when explicitly
+        required by the user's request or workflow.
     """,
 
+
+    
     "performance": """
-        Performance analysis.
+        Performance analysis and bottleneck identification.
 
         Owns:
-        - CPU bottlenecks
-        - memory bottlenecks
-        - I/O bottlenecks
-        - database bottlenecks
-        - network bottlenecks
-        - concurrency bottlenecks
-        - performance analysis and recommendations
+        - CPU, memory, and I/O bottleneck analysis
+        - Database query and network latency analysis
+        - Concurrency and throughput analysis
+        - Identification of performance regressions
+        - Performance measurements and profiling
+        - Recommendations for improving latency, throughput,
+        scalability, and resource utilization
+
+        Primary goal:
+        Diagnose performance problems and recommend improvements.
+        Does not own implementation of optimization changes.
     """,
+ 
 
     "code_engineering": """
         Code implementation and remediation.
@@ -83,30 +100,51 @@ SPECIALIST_AGENTS = {
         to the repository specialist when that is the requested outcome.
     """,
 
+
     "code_review": """
         Code review and code-quality analysis.
 
         Owns:
-        - correctness review
-        - maintainability review
-        - code quality
-        - engineering best practices
-        - security-sensitive logic review
+        - Correctness and logic review
+        - Maintainability and readability assessment
+        - Engineering best-practice compliance
+        - Identification of code smells and potential defects
+        - Review of implementation quality
+        - Assessment of testability and error handling
+        - General review of security-sensitive logic as part of
+        broader code quality, when relevant
 
+        Primary goal:
+        Evaluate implementation quality and identify code-level
+        issues without implementing fixes.
+
+        Does not own dedicated vulnerability assessment, threat modeling,
+        or comprehensive security analysis. Those belong to security.
+        Does not implement remediation; that belongs to code_engineering
+        when requested.
     """,
+
 
     "testing": """
-        Testing and validation.
+        Testing and validation of software behavior and changes.
 
         Owns:
-        - unit testing
-        - integration testing
-        - regression testing
-        - dynamic testing
-        - security testing
-        - validation of implemented changes
+        - Unit testing
+        - Integration testing
+        - Regression testing
+        - Dynamic testing
+        - Security testing and validation
+        - Validation of implemented changes
+        - Verification that requested acceptance criteria are satisfied
 
+        Primary goal:
+        Execute or design the required tests and report the results.
+
+        Does not replace security analysis when the user requests
+        vulnerability discovery or security risk assessment.
+        Do not select testing automatically for every implementation task.
     """,
+
 
     "Jira": """
         Engineering workflow and Jira management.
@@ -119,17 +157,25 @@ SPECIALIST_AGENTS = {
 
     """,
 
+    
     "optimization": """
-        Code and system optimization.
+        Performance and efficiency optimization.
 
-       Owns:
-        - algorithm optimization
-        - query optimization
-        - resource utilization improvements
-        - implementation efficiency
-        - system efficiency improvements
-        - performance-oriented optimization
-        """,
+        Owns:
+        - Algorithm optimization
+        - Database query optimization
+        - Resource utilization improvements
+        - Implementation efficiency improvements
+        - Latency and throughput optimization
+        - System efficiency improvements
+
+        Primary goal:
+        Implement or direct concrete changes that improve performance
+        or efficiency when optimization work is requested.
+
+        Does not own general performance diagnosis when the user
+        only requests analysis and recommendations.
+    """,
 
     "refactoring": """
         Structural code refactoring.
@@ -142,5 +188,33 @@ SPECIALIST_AGENTS = {
         - reducing unnecessary complexity
 
       Primary goal is structural improvement while preserving intended behavior.
+    """,
+
+    
+    "general": """
+        General-purpose assistance and fallback routing.
+
+        Owns:
+        - Answering general informational questions
+        - Explaining concepts and terminology
+        - General reasoning and brainstorming
+        - Summarizing user-provided information
+        - Helping with requests that do not require a
+        domain-specific specialist
+        - Handling general conversational requests
+
+        Primary goal:
+        Fulfill requests that do not require a specialized
+        engineering or workflow capability.
+
+        Do not use this agent as a substitute for an available
+        specialist when the user's request clearly requires that
+        specialist's capabilities.
+
+        Do not use this agent to bypass required specialist
+        workflows, repository operations, security analysis,
+        implementation, testing, or Jira operations.
     """
+    ,
+
 }

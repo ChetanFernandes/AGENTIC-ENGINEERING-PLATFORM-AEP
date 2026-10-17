@@ -40,5 +40,5 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
+docs/
 logs/

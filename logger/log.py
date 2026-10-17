@@ -33,10 +33,10 @@ def setup_logging():
 
     # writing logs in console
 
-    #console_log_handler = logging.StreamHandler(sys.stdout)
-    #console_log_handler.setFormatter(formatter)
+    console_log_handler = logging.StreamHandler(sys.stdout)
+    console_log_handler.setFormatter(formatter)
 
-    #logger.addHandler(console_log_handler)
+    logger.addHandler(console_log_handler)
 
     return logger
 

@@ -1,8 +1,10 @@
 import streamlit as st
 from uuid import uuid4
 import requests
+import os
 
-BASE_URL = "http://localhost:8000"
+AEP_BACKEND_URL = os.getenv("AEP_BACKEND_URL", "http://localhost:8000")
+BASE_URL = AEP_BACKEND_URL.rstrip("/")
 
 def start_app():
     try:
@@ -27,21 +29,47 @@ def start_app():
     
 def payload_send(user_name,thread_id,question):
     try:
-        response = requests.post(url = f"{BASE_URL}/chat", json = {"user_name" : user_name, "thread_id" : thread_id , "question":question})
+        response = requests.post(url = f"{BASE_URL}/chat", json = {"user_name" : user_name, "thread_id" : thread_id , "question":question}, timeout=(20,600))
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.Timeout:
+        st.error("Resume request timed out.")
+        return None
     except Exception:
         st.error("Processing failed")
         return None
 
 
-def interrupt(decision:str, thread_id:str, user_name:str, execution_id: str):
+def interrupt(decisions: list[dict], thread_id:str, user_name:str, execution_id: str,):
+     # Clear any previous error before starting a new request.
+    st.session_state.resume_error = None
     try:
-        response = requests.post(url = f"{BASE_URL}/resume", json = {"decision":decision, "thread_id": thread_id, "user_name":user_name, "execution_id": execution_id})
-        response.raise_for_status()
+        response = requests.post(url = f"{BASE_URL}/resume", json = {"decisions": decisions, "thread_id": thread_id, 
+                                        "user_name":user_name, "execution_id": execution_id}, timeout=(20,600))
+    
+        if not response.ok:
+            st.session_state.resume_error = (
+                f"Resume failed ({response.status_code}): "
+                f"{response.text}"
+            )
+  
+            return None
+
         return response.json()
-    except Exception:
-        st.error("Error while responding to interrupt call")
+
+
+    except requests.exceptions.Timeout:
+        st.session_state.resume_error = "Resume request timed out."
+        return None
+
+    except requests.exceptions.RequestException as e:
+        st.session_state.resume_error = (f"Error while responding to interrupt: {e}")
+        return None
+
+    except ValueError as e:
+        st.session_state.resume_error = (
+            f"Invalid JSON response from the backend: {e}"
+        )
         return None
     
 st.set_page_config(page_title="Agentic Engineering Platform", layout="wide")
@@ -66,6 +94,9 @@ if "pending_approval" not in st.session_state:
 if "approval_processing" not in st.session_state:
     st.session_state.approval_processing = False
 
+if "resume_error" not in st.session_state:
+    st.session_state.resume_error = None
+
 
 # --------------------------------------------------
 # Sidebar
@@ -82,13 +113,16 @@ with st.sidebar:
     # ----------------------------------------------
 
     if user_name != st.session_state.user_name:
-
+        
         st.session_state.user_name = user_name
+        st.session_state.resume_error = None
         # New user -> new thread
         st.session_state.thread_id = str(uuid4())
         # Clear previous conversation
         st.session_state.messages = []
         st.session_state.pending_approval = None
+        st.session_state.approval_processing = False
+
         st.rerun()
 
 
@@ -108,7 +142,8 @@ with st.sidebar:
         st.session_state.thread_id = str(uuid4())
         st.session_state.messages = []
         st.session_state.pending_approval = None
-
+        st.session_state.approval_processing = False
+        st.session_state.resume_error = None
         st.rerun()
 
 
@@ -164,6 +199,10 @@ for message in st.session_state.messages:
             if metadata:
                 st.subheader("Metadata")
                 st.json(metadata)
+
+
+if st.session_state.resume_error:
+    st.error(st.session_state.resume_error)
 # --------------------------------------------------
 # Chat input
 # --------------------------------------------------
@@ -198,9 +237,9 @@ if user_message:
     with st.chat_message("assistant"):
         st.write(assistant_dummy_response)
 
+    # Getting response from backend
     response = payload_send(st.session_state.user_name, st.session_state.thread_id, user_message)
     
-
     if response is None:
         st.stop()
 
@@ -223,74 +262,83 @@ if user_message:
 
 
 if st.session_state.pending_approval is not None:
-    
+
     response = st.session_state.pending_approval
 
     st.warning("Approval Required")
 
-    action_request = response["action_requests"][0]
+    action_requests = response.get("action_requests", [])
 
-    st.write("Tool")
-    st.write(action_request["name"])
+    decisions= []
 
-    st.write("Arguments:")
-    st.json(action_request["args"])
+    for i, action_request in enumerate(action_requests, start=1):
+        st.subheader(f"Action {i}")
 
-    col1,col2 = st.columns(2)
+        st.write("Tool")
+        st.write(action_request["name"])
 
-    with col1:
-        if st.button("Approve", key="approve_tool", disabled=st.session_state.approval_processing):
+        st.write("Arguments:")
+        st.json(action_request["args"])
 
-            # Immediately disable buttons
-            st.session_state.approval_processing = True
+        decision = st.radio(
+            "Choose decision",
+            options=["approve", "reject"],
+            key=f"decision_{response['execution_id']}_{i}",
+            horizontal=True,
+        )
 
-            response = interrupt("approve", st.session_state.thread_id, st.session_state.user_name, st.session_state.pending_approval["execution_id"])
+        decisions.append({"type": decision})
+    st.caption(
+        f"Approval processing: "
+        f"{st.session_state.approval_processing}"
+    )
 
-            if response is None:
-                st.session_state.approval_processing = False
-                st.stop()
+    if not action_requests:
+        st.error("No action requests were returned for approval.")
 
-            if response.get("status") == "waiting_for_approval":
-                # Another approval is required
-                st.session_state.pending_approval = response
-                st.session_state.approval_processing = False
+    if st.button("Submit Decisions", key="submit_decisions", disabled=st.session_state.approval_processing,):
+        st.session_state.approval_processing = True
 
-            else:
-                st.session_state.pending_approval = None
-                st.session_state.approval_processing = False
-                final_answer = response.get("final_answer")
-                st.session_state.messages.append({"role": "assistant", "final_answer": final_answer})
+        try:
+            with st.spinner("Processing decisions..."):
+                result = interrupt(decisions,st.session_state.thread_id,st.session_state.user_name,response["execution_id"])
 
-            st.rerun()
+            if result is None:
+                pass
 
-    with col2:
-        if st.button("Reject",key = "reject_tool", disabled=st.session_state.approval_processing):
+            elif result.get("status") == "waiting_for_approval":
+                st.session_state.resume_error = None
+                st.session_state.pending_approval = result
 
-            # Immediately disable buttons
-            st.session_state.approval_processing = True
+            elif result.get("status") == "error":
+                st.session_state.resume_error = result.get(
+                    "error", "The backend reported an error."
+                )
 
-            response = interrupt("reject", st.session_state.thread_id,st.session_state.user_name,st.session_state.pending_approval["execution_id"])
-           
-            if response is None:
-                st.session_state.approval_processing = False
-                st.stop()
-
-            if response.get("status") == "waiting_for_approval":
-                st.session_state.pending_approval = response
-                st.session_state.approval_processing = False
             
             else:
+                st.session_state.resume_error = None
                 st.session_state.pending_approval = None
-                st.session_state.approval_processing = False
-                final_answer = response.get("final_answer")
-                st.session_state.messages.append({"role": "assistant", "final_answer": final_answer})
+                
+                final_answer = result.get("final_answer")
+                if final_answer:
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "final_answer": final_answer,
+                    })
+                st.session_state.resume_error = None
 
-            st.rerun()
+        except Exception as e:
+            st.session_state.resume_error = (
+                f"Unexpected error while submitting decisions: {e}"
+            )
 
+        finally:
+            st.session_state.approval_processing = False
 
-
+        st.rerun()
+  
  
-
 
 
    

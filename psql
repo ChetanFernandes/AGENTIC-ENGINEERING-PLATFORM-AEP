@@ -11,6 +11,29 @@ CREATE TABLE episodic_memory_embeddings (
     embedding VECTOR(1536)
 )
 
+CREATE TABLE episodic_execution_in_progress (
+            execution_id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			thread_id TEXT NOT NULL,
+			user_request TEXT,
+			messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+CREATE INDEX episodic_memory_embedding_idx ON episodic_memory_embeddings USING hnsw (embedding vector_cosine_ops);
+
+ALTER TABLE episodic_memory_embeddings ADD CONSTRAINT unique_execution_id UNIQUE (execution_id); 
+
+CREATE INDEX episodic_memory_user_id_idx ON episodic_memory_embeddings (user_id)
+
+-----------------------------------
+SELECT constraint_name FROM information_schema.table_constraints WHERE table_name = 'episodic_memory_embeddings' AND constraint_name = 'unique_execution_id';
+
+
+SELECT indexname indexdef FROM pg_indexes WHERE tablename = 'episodic_memory_embeddings';
+
+
 SELECT * FROM episodic_memory_embedding
 
 
@@ -19,17 +42,13 @@ WHERE table_name = 'episodic_memory_embeddings'
 ORDER BY ordinal_position;
 
 
-CREATE INDEX episodic_memory_embedding_idx
-ON episodic_memory_embeddings
-USING hnsw (embedding vector_cosine_ops);
-
-ALTER TABLE episodic_memory_embeddings ADD CONSTRAINT unique_execution_id UNIQUE (execution_id); 
-SELECT constraint_name FROM information_schema.table_constraints WHERE table_name = 'episodic_memory_embeddings' AND constraint_name = 'unique_execution_id';
-
-
-CREATE INDEX episodic_memory_user_id_idx ON episodic_memory_embeddings (user_id)
-SELECT indexname indexdef FROM pg_indexes WHERE tablename = 'episodic_memory_embeddings';
-
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = 'public'
 ORDER BY table_name;
+
+
+SELECT
+    current_database() AS database_name,
+    inet_server_addr() AS server_host,
+    inet_server_port() AS server_port,
+    current_user AS username;

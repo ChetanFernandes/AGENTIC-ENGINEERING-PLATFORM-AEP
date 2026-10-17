@@ -10,7 +10,18 @@ from langchain_core.messages import AIMessage, ToolMessage
 from deepagents.backends import LangSmithSandbox
 from logger.log import setup_logging
 log = setup_logging()
+import re
 
+import re
+
+def validate_user_id(user_id: str) -> str:
+    log.info("Before_validation:%s",user_id)
+    user_id = user_id.strip()
+    if not user_id:
+        raise ValueError("user_id cannot be empty")
+    user_id = re.sub(r"[^a-zA-Z0-9._@+:\-~]", "_", user_id)
+    log.info("After_validation:%s",user_id)
+    return user_id
 
 def is_broken_mcp_session(exc: Exception) -> bool:
     """ To check is currect MCP session is broken or not"""
@@ -48,98 +59,100 @@ def print_agent_output(agent_output):
 
     print("=" * 70)
 
-
-
 def extract_learning(experience, existing_learning,llm_openai,LearningOutput):
+    try:
+        structured_llm = llm_openai.with_structured_output(LearningOutput, method = "function_calling")
+        prompt = """
+                    You analyze an agent's execution experience.
 
-    structured_llm = llm_openai.with_structured_output(LearningOutput, method = "function_calling")
+                    Determine whether the experience contains a genuinely reusable lesson
+                    that could help an agent perform better in a future execution.
 
-    prompt = """
-                You analyze an agent's execution experience.
+                    A reusable lesson can be:
 
-                Determine whether the experience contains a genuinely reusable lesson
-                that could help an agent perform better in a future execution.
+                    - a mistake and how to avoid it
+                    - a failed approach and a better approach
+                    - a stable, reusable tool/environment/workspace constraint
+                    - a reusable procedure or pattern discovered during execution
+                    - a successful approach that is broadly reusable in future executions
 
-                A reusable lesson can be:
+                    A learning must describe a reusable rule, pattern, constraint, mistake,
+                    or procedure — not merely report what happened during this execution.
 
-                - a mistake and how to avoid it
-                - a failed approach and a better approach
-                - a stable, reusable tool/environment/workspace constraint
-                - a reusable procedure or pattern discovered during execution
-                - a successful approach that is broadly reusable in future executions
+                    Do NOT create learning from temporary execution-specific facts such as:
 
-                A learning must describe a reusable rule, pattern, constraint, mistake,
-                or procedure — not merely report what happened during this execution.
+                    - file paths
+                    - commit SHAs
+                    - branch names
+                    - repository contents
+                    - tool output
+                    - logs
+                    - execution results
+                    - temporary state
+                    - task-specific values
+                    - artifacts
 
-                Do NOT create learning from temporary execution-specific facts such as:
+                    Do not create a lesson merely because an execution was successful
+                    or produced an interesting result.
 
-                - file paths
-                - commit SHAs
-                - branch names
-                - repository contents
-                - tool output
-                - logs
-                - execution results
-                - temporary state
-                - task-specific values
-                - artifacts
+                    If the experience contains no genuinely reusable information,
+                    return has_learning=false.
 
-                Do not create a lesson merely because an execution was successful
-                or produced an interesting result.
+                    If the same or substantially similar lesson already exists in
+                    Existing learning, return has_learning=false.
 
-                If the experience contains no genuinely reusable information,
-                return has_learning=false.
+                    Do not create a new lesson that merely restates, slightly rephrases,
+                    or narrows an existing general lesson unless it adds meaningfully
+                    new reusable information.
 
-                If the same or substantially similar lesson already exists in
-                Existing learning, return has_learning=false.
+                    If reusable learning exists, write it as a concise standalone lesson
+                    that can be added directly to SKILL.md.
 
-                Do not create a new lesson that merely restates, slightly rephrases,
-                or narrows an existing general lesson unless it adds meaningfully
-                new reusable information.
+                    Execution experience:
+                    {experience}
 
-                If reusable learning exists, write it as a concise standalone lesson
-                that can be added directly to LEARNINGS.md.
+                    Existing learning:
+                    {existing_learning}
+                    """
+        learning_chain = ChatPromptTemplate.from_messages([("system",prompt)]) | structured_llm
+        result = learning_chain.invoke({"experience" : experience,"existing_learning":existing_learning})
+        return result
+    except Exception:
+        log.exception("Error occured while extracting learning")
 
-                Execution experience:
-                {experience}
 
-                Existing learning:
-                {existing_learning}
-
-               
-                """
-    learning_chain = ChatPromptTemplate.from_messages([("system",prompt)]) | structured_llm
-    result = learning_chain.invoke({"experience" : experience,"existing_learning":existing_learning})
-    return result
 
 def detect_execution_event(messages):
     """ To extract content and error in case final output returned by message is not structured response"""
-    details = {"AI_content": None, "Tool_content":None, "tool_errors": []}
+    try:
+        details = {"AI_content": None, "Tool_content":None, "tool_errors": []}
 
-    for message in reversed(messages):
-     
-        if isinstance(message,AIMessage):
-            content = message.content
-            if details["AI_content"] is None:
-                details["AI_content"] = content
-
-        if isinstance(message,ToolMessage):
-            if message.status == "error":
+        for message in reversed(messages):
+        
+            if isinstance(message,AIMessage):
                 content = message.content
-                
-                if isinstance(content, str):
-                    details["tool_errors"].append(content)
-                elif isinstance(content, list):
-                    for block in content:
-                        if not isinstance(block, dict):
-                            continue
-                        if block.get("type") == "text":
-                            text = block.get("text")
-                            if text:
-                                details["tool_errors"].append(text)
+                if details["AI_content"] is None:
+                    details["AI_content"] = content
+
+            if isinstance(message,ToolMessage):
+                if message.status == "error":
+                    content = message.content
+                    
+                    if isinstance(content, str):
+                        details["tool_errors"].append(content)
+                    elif isinstance(content, list):
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") == "text":
+                                text = block.get("text")
+                                if text:
+                                    details["tool_errors"].append(text)
 
 
-    return details
+        return details
+    except Exception:
+        log.exception("Error occured while extracting for finaloutput")
 
 def normalize_agent_output(result:dict|Any) -> AgentOutput:
     """ To normalize final agent output"""
@@ -174,9 +187,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
                 errors=["No messages returned by the agent."]
             )
 
-        
-        log.info("Agent gave output in terms of messages:%s",messages)
-        
+
         details = detect_execution_event(messages)
 
         errors = []
@@ -204,7 +215,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
 
                    # Not JSON → treat it as normal agent output
             return AgentOutput(
-                status="partial_success",
+                status="Partial_Success",
                 result = text,
                 errors = errors,
                 metadata={
@@ -241,7 +252,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
                     pass
 
                 return AgentOutput(
-                            status="partial_success",
+                            status="Partial_Success",
                             result = text,
                             errors = errors,
                             metadata={
@@ -254,7 +265,7 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
         # CASE 3: Nothing usable
         # ---------------------------------------------------------
         return AgentOutput(
-            status="failed",
+            status="Failed",
             summary="Agent did not produce a usable response.",
             result = None,
             errors=[
@@ -278,32 +289,36 @@ def format_previous_question(previous_messages:list,current_question):
     return "\n\n".join(f"previous_requests: {i+1}: {message}" for i, message in enumerate(requests))
 
 def sandbox_provision(client):
-    sandboxes = client.list_sandboxes()
-    ls_sandbox = next((sandbox for sandbox in sandboxes if sandbox.name =="aep-sandbox"),None)
-    log.info("List of existing sandbox:%s",  ls_sandbox)
+    try:
+        sandboxes = client.list_sandboxes()
+        ls_sandbox = next((sandbox for sandbox in sandboxes if sandbox.name =="aep-sandbox"),None)
+        log.info("List of existing sandbox:%s",  ls_sandbox)
 
-    if  ls_sandbox:
-        status =  client.get_sandbox_status(ls_sandbox.name)
-        log.info("status of Sandbox:%s",status.status)
+        if  ls_sandbox:
+            status =  client.get_sandbox_status(ls_sandbox.name)
+            log.info("status of Sandbox:%s",status.status)
 
-    if ls_sandbox and status.status in ("running","ready","idle","provisioning"):
-        log.info("Reusing Sandbox:%s", ls_sandbox.name)
+        if ls_sandbox and status.status in ("running","ready","idle","provisioning"):
+            log.info("Reusing Sandbox:%s", ls_sandbox.name)
 
-    elif ls_sandbox and status.status == "stopped":
-        client.start_sandbox(ls_sandbox.name, timeout=600)
-        log.info("Sandbox started successfully:%s", ls_sandbox.name)
+        elif ls_sandbox and status.status == "stopped":
+            client.start_sandbox(ls_sandbox.name, timeout=600)
+            log.info("Sandbox started successfully:%s", ls_sandbox.name)
 
-    elif ls_sandbox and status.status == "failed":
-        client.delete_sandbox(ls_sandbox.name)
-        ls_sandbox = client.create_sandbox(name="aep-sandbox")
-        log.info("Failed Sandbox deleted and created new one:%s", ls_sandbox.name)
+        elif ls_sandbox and status.status == "failed":
+            client.delete_sandbox(ls_sandbox.name)
+            ls_sandbox = client.create_sandbox(name="aep-sandbox")
+            log.info("Failed Sandbox deleted and created new one:%s", ls_sandbox.name)
 
-    else:
-        ls_sandbox = client.create_sandbox(name="aep-sandbox")
-        log.info("Created sandbox -> %s", ls_sandbox.name)
+        else:
+            ls_sandbox = client.create_sandbox(name="aep-sandbox")
+            log.info("Created sandbox -> %s", ls_sandbox.name)
 
-    sandbox_backend = LangSmithSandbox(sandbox = ls_sandbox)
-    return sandbox_backend , ls_sandbox
+        sandbox_backend = LangSmithSandbox(sandbox = ls_sandbox)
+        return sandbox_backend , ls_sandbox
+    except Exception:
+        log.exception("Sandbox provisioning failed")
+        raise
         
     
 

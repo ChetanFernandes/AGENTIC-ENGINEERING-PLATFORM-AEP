@@ -12,6 +12,7 @@ from app.schemas.agent_output_schema import AgentOutput
 from logger.log import setup_logging
 from langchain.tools import tool
 from langchain.tools import tool, ToolRuntime
+import os
 log = setup_logging()
 import asyncio
 
@@ -32,15 +33,16 @@ class backend:
         key =  "/AGENTS.md"
         path = Path(r"app/executor/langgraph/AGENTS.md")
         item = self.store.get(namespace_memory,key)
-        #if not item:
-        self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
+        #self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
+        if not item:
+            self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
      
       
         namespace_memory = ("main_agent", "main_agent_learning")
-        key =  "/LEARNINGS.md"
+        key =  "/SKILL.md"
         item = self.store.get(namespace_memory,key)
         if not item:
-            self.store.put(namespace_memory, key , create_file_data("When working on repository tasks, verify the current git branch before making changes."))
+            self.store.put(namespace_memory, key , create_file_data(""))
         else:
             pass
 
@@ -51,7 +53,7 @@ class backend:
         key = "/SKILL.md"
         path = Path(r"skills/repository-analysis/SKILL.md")
         item = self.store.get(namespace_skills,key)
-
+        #self.store.put(namespace_skills , key, create_file_data(path.read_text(encoding='utf-8')))
         if not item:
             self.store.put(namespace_skills , key, create_file_data(path.read_text(encoding='utf-8')))
         else:
@@ -148,12 +150,12 @@ class backend:
         return self.store
 
 
-    #----------------------------------------------------------------------------------
+    #-----------------------------Read and write agent learning memory-----------------------------------------------------
 
     async def read_agent_learning(self):
         """ Used to read the existing learning from store """
         namespace = ("main_agent", "main_agent_learning")
-        key = "/LEARNINGS.md"
+        key = "/SKILL.md"
         item = await self.store.aget(namespace, key)
         data = item.value["content"]
         if data:
@@ -164,15 +166,15 @@ class backend:
     async def write_learning(self,updated_learning):
         """ Used to update new learning in the store"""
         namespace = ("main_agent", "main_agent_learning")
-        key = "/LEARNINGS.md"
+        key = "/SKILL.md"
         await self.store.aput(namespace, key,create_file_data(updated_learning))
 
-#----------------------------------------------------------------------------------
+#----------------------------Read user personal memory------------------------------------------------------
 
     def read_user_personal_memory(self,user_id):
         '''This is not requuired'''
         namespace = ("users", user_id)
-        key = f"/{user_id}_USER_MEMORY.md"
+        key = f"/USER_MEMORY.md"
         item = self.store.get(namespace,key)
         if item:
             data = item.value.get("content","")
@@ -236,14 +238,11 @@ class backend:
 
             user_id = runtime.context.user_id
 
-            return await self.write_user_personal_memory(
-                user_id=user_id,
-                agent_learning=memory
-            )
+            return await self.write_user_personal_memory(user_id=user_id, agent_learning=memory)
 
         return write_memory
 
-    # ----------------------Writing user memory ----------------------------------
+    # ----------------------close----------------------------------
 
 
         

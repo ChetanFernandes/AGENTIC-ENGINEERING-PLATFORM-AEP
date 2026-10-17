@@ -1,9 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
-from config.llm_config import llm_openai_mini
-from pydantic import BaseModel , Field
+from pydantic import BaseModel , Field, field_validator
 from logger.log import setup_logging
 log = setup_logging()
-from typing import Any
 
 class SelectedSourceContext(BaseModel):
     status: str | None = None
@@ -11,41 +9,73 @@ class SelectedSourceContext(BaseModel):
     errors: list[str] = Field(default_factory=list)
     relevant_details: str | None = None
 
+    @field_validator("errors",mode = 'before')
+    @classmethod
+    def normalize_errors(cls,value):
+        if value is None:
+            return []
+        return value
+
 class LLMOutput(BaseModel):
      selected_context: dict[str, SelectedSourceContext] = Field(default_factory=dict)
 
 class ContextRelevanceSelector:
     pass
 
-    async def  select_relevant_context(self, task, source_1 = {}, source_2 = {} ):
-        
+    async def  select_relevant_context(self, task, llm_openai, source_1 = {}, source_2 = {}):
         system_prompt = '''
-            1. You are an expert in extracting the content required to solve the task effectively from the given sources.
-            2. The content extracted by you will be passed to the agent to solve the task.
-            3. The source data is provided as Python dictionaries containing key-value pairs.
-            4. The key represents the source/topic name, such as repository, security, architecture, etc.
-            5. The value contains the content produced by that source/topic.
-            6. Use the key to identify the source and extract only the relevant portions from its value.
-            7. Do not create your own content. Extract content only from the sources.
-            8. If source_1 is empty, extract content only from source_2 and vice versa.
-            9. If a source has no relevant information, do not include that source in selected_context.
-            10. Return the extracted content grouped by source name.
-            11. Always preserve the source's status, summary, and errors in selected_context.
-                From result and metadata, extract only the information relevant to the task.
-            12. For each selected source, return the information using these fields:
-                - status: copy the source's status exactly.
-                - summary: copy the source's summary exactly.
-                - errors: copy the source's errors exactly.
-                - relevant_details: extract only the portions of result or metadata that are relevant to the task.
-            13. Do not modify, summarize, or invent the status, summary, or errors.
-            14. Preserve failure information and pass it to the next agent; do not exclude a source merely because its status indicates failure
-            15. Information related to the task and sources:
-                task - {task}
-                source_1 - {source_1}
-                source_2 - {source_2}
-        '''
+        You are a context selection component in a multi-agent engineering platform.
+
+        Your responsibility is to extract task-relevant information from the provided sources and pass it to the downstream agent.
+
+        ## Rules
+
+        1. Treat `source_1` and `source_2` as the only authoritative sources. Do not use external knowledge or invent content.
+
+        2. Select only information explicitly present in the source data and directly relevant to the given task.
+
+        3. For every selected source, preserve these fields exactly as provided:
+        - status
+        - summary
+        - errors
+
+        4. Populate `relevant_details` using only information explicitly present in the source's `result` or `metadata`.
+
+        5. Do not create new findings, recommendations, explanations, summaries, or instructions. Do not rewrite extracted evidence into new statements.
+
+        6. Exclude unrelated content, including conversation-recovery instructions, execution-resumption notes, internal workflow instructions, and unrelated historical context, unless explicitly required by the task.
+
+        7. Do not treat a file's existence as proof of a vulnerability. Preserve the source's stated limitations, uncertainty, and missing evidence.
+
+        8. Do not combine unrelated information from different sources into a new narrative. Group selected content under its original source name.
+
+        9. If a source has no relevant information, omit it from `selected_context`. If only part of a source is relevant, select only that part.
+
+        10. If a source reports that an investigation or scan was not completed, preserve that limitation. Never imply that the investigation was completed.
+
+        11. Do not create missing information to satisfy the downstream task. The downstream agent must be able to recognize when evidence is insufficient.
+
+        12. When relevance is uncertain, exclude the questionable content rather than introducing potentially unrelated information.
+
+        13. Return only the requested structured output. Do not add commentary outside the output schema.
+
+        For the output schema:
+        - The errors field must always be a list of strings.
+        - If the source errors field is null or missing, return an empty list [].
+        - Never return null for errors.
+        - Preserve all actual error messages without changing their content.
+
+        ## Task and sources
+
+        Task: {task}
+
+        Source 1: {source_1}
+
+        Source 2: {source_2}
         
-        structured_llm = llm_openai_mini.with_structured_output(LLMOutput, method="function_calling")
+        '''
+     
+        structured_llm = llm_openai.with_structured_output(LLMOutput, method="function_calling")
 
         template = ChatPromptTemplate.from_messages([ ("system", system_prompt) , 
                                                       ("human" , "Task: {task}\n source_1: {source_1},  source_2: {source_2}")
@@ -55,7 +85,7 @@ class ContextRelevanceSelector:
 
         result = await relevance_chain.ainvoke({"task" : task , "source_1" : source_1 ,"source_2" : source_2})
 
-        log.info("Output producted by LLM:%s" , result.selected_context)
+        log.info("Content producted by LLM:%s" , result.selected_context)
         
         return result.selected_context
 

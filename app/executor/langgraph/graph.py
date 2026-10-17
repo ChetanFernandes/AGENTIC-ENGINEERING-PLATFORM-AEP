@@ -2,7 +2,7 @@ from app.schemas.custom_schemas import CustomState
 from app.schemas.agent_output_schema import AgentOutput
 from langgraph.graph import StateGraph, START , END 
 from app.executor.context_management.context_manager import ContextManager
-from config.llm_config import llm_openai
+from config.llm_config import llm_call
 from deepagents import create_deep_agent
 from langsmith.sandbox import SandboxClient
 from app.executor.langgraph.prompt_1 import main_agent_system_prompt
@@ -54,6 +54,7 @@ class AgentExecutor:
         def __init__(self):
             self.graph = StateGraph(CustomState)
             self.context_manager = ContextManager()
+            self.llm_factory = llm_call()
 
             # MCP
             self.mcp_manager = MCPManager(pool_size=5)
@@ -68,7 +69,6 @@ class AgentExecutor:
             self.graph.add_node("deep_agent_executor", self.deep_agent_executor)
             self.graph.add_node("state_tracking_before_deep_agent_execution",self.state_tracking_before_deep_agent_execution)
             self.graph.add_node("state_tracking_after_deep_agent_execution",self.state_tracking_after_deep_agent_execution)
-            #self.graph.add_node("store_tracking_after_deep_agent_execution",self.store_tracking_after_deep_agent_execution)
             self.graph.add_node("fan_in_routes", self.fan_in_routes)
             self.graph.add_node("end_node", self.end_node)
 
@@ -108,6 +108,7 @@ class AgentExecutor:
         try:
             self.sandbox_backend, self.ls_sandbox = sandbox_provision(self.client)
             log.info("user_id:%s",runtime.context.user_id)
+            log.info("llm_open_ai:%s",runtime.context.llm_open_ai)
             log.info("thread_id:%s",config["configurable"].get("thread_id","NA"))
             
             current_question = state["user_request"].strip()
@@ -115,6 +116,7 @@ class AgentExecutor:
             log.info("user_request:%s",current_question)
 
             previous_question_history = state.get("messages", [])
+            previous_accumulated_questions = []
 
             if previous_question_history:
                 previous_accumulated_questions = []
@@ -141,6 +143,11 @@ class AgentExecutor:
                                                                  """
                                                         )
                                                     ])
+            
+
+
+            llm_openai =  runtime.context.llm_open_ai
+            
             structured_llm = llm_openai.with_structured_output(RouteDecision)
 
             router_chain = chat_template | structured_llm
@@ -170,7 +177,7 @@ class AgentExecutor:
             raise
        
 
-    async def details_gathering_node(self,state:CustomState, runtime:Runtime):
+    async def details_gathering_node(self,state:CustomState, runtime:Runtime,):
         try:
             ready_agents = state["ready_routes"]
 
@@ -182,7 +189,7 @@ class AgentExecutor:
                 agent_name = route["agent"]
                 task = route["task"]
 
-                result = await self.context_manager.build_context(agent_name, task, user_id, self.store_backend, state)
+                result = await self.context_manager.build_context(agent_name, task, user_id, self.store_backend, state, runtime.context.llm_open_ai)
 
                 return agent_name, result.context
 
@@ -246,18 +253,13 @@ class AgentExecutor:
     async def deep_agent_executor(self,state:CustomState, runtime:Runtime, config : RunnableConfig):
         session_entry = None
         try:
-
             current_route = state["current_route"]
-
             task = current_route["task"]
             agent_name = current_route["agent"]
             route_id = current_route["route_id"]
             route_is_final = current_route.get("is_final", False)
-
             content = state["context_given_agent"].get(agent_name,{})
-
             user_question = state.get("user_question")
-
 
             log.info("Deep_agent_is_executing_agent -> %s", agent_name)
             log.info("Task for agent is->%s",task)
@@ -269,7 +271,6 @@ class AgentExecutor:
             system_prompt = main_agent_system_prompt.replace("{user_memory_file}", user_memory_file)                     
             session_entry = await self.mcp_manager.acquire("github")
             mcp_tools = session_entry.tools
-            log.info("mcp_tools:%s",mcp_tools)
             searchable_tools = [tool.name for tool in mcp_tools]
             interrupt = InterruptDefinition(session_entry.tools)
 
@@ -289,10 +290,11 @@ class AgentExecutor:
             
 
             main_agent_memory_wrapper, main_agent_learning_wrapper, subagent_skills_wrapper = self.store_backend.policy_wrapper()
-        
+    
+            llm_open_ai = runtime.context.llm_open_ai
             deep_agent = create_deep_agent(
 
-                    model = llm_openai, 
+                    model = llm_open_ai, 
                     backend = CompositeBackend
                                 (
                                     default = self.sandbox_backend, 
@@ -310,27 +312,29 @@ class AgentExecutor:
                     response_format = AgentOutput, 
                     middleware = [    
                                     state_Tool_Tracking(store = self.store_backend.return_store(), backend = self.store_backend), 
-                                    create_summarization_middleware(self.sandbox_backend),
+                                    #create_summarization_middleware(self.sandbox_backend,llm_open_ai),
                                     context_editing_middleware(),
-                                    HumanInTheLoopMiddleware(interrupt_on = self.interrupt_on)
+                                    HumanInTheLoopMiddleware(interrupt_on = self.interrupt_on),
+                                    #ProviderToolSearchMiddleware(searchable_tools = searchable_tools)
                                  ], 
-                                #ProviderToolSearchMiddleware(searchable_tools = searchable_tools)],
+                      
                                                     
-                    subagents = [sub_agent_caller()],
+                    subagents = [sub_agent_caller(llm_open_ai)],
                     store = self.store_backend.return_store() ,
                     checkpointer = runtime.context.checkpointer ,
                     tools = mcp_tools + [search_recent_conversation, self.store_backend.get_write_memory_tool()],
-                    permissions = [FilesystemPermission(operations=['read','write'], paths=["/user_memories/", "/main_agent_learning/"], mode = 'allow'),],
-                    memory = ["/main_agent_skill/AGENTS.md" , "/main_agent_learning/LEARNINGS.md", "/user_memories/USER_MEMORY.md"]
+                    permissions = [FilesystemPermission(operations=['read','write'], paths=["/user_memories/", "/main_agent_learning/","/sub_agent_skills/"], mode = 'allow'),],
+                    memory = ["/main_agent_skill/AGENTS.md"],
+    
                                             )
                                                     
-  
+
             result = await deep_agent.ainvoke(
                                                 {
                                                     "messages" :[ 
                                                                     {
                                                                         "role": "user",
-                                                                        "content": (    f"Human_question:\n{user_question}\n"
+                                                                        "content": (  
                                                                                         f"Task:\n{task}\n\n"
                                                                                         f"Relevant Context from Previous Agents:\n{content}\n\n"
                                                                                     )
@@ -341,18 +345,20 @@ class AgentExecutor:
                                                 config = config,
                                                 context = runtime.context)
             messages = result.get("messages", [])
-
+ 
             log.info("========== DEEP AGENT RESPONSE ==========")
             log.info("MESSAGE COUNT: %d", len(messages))
+            #log.info("Agent_output_before_episodic_memory%s",messages)
 
             episodic_memory = runtime.context.episodic_memory
 
             execution_id = config["metadata"]["execution_id"]
 
             thread_id = config["configurable"]["thread_id"]
-
+            
             await episodic_memory.add_execution_history(execution_id=execution_id, messages = messages, user_request = user_question, thread_id=thread_id, user_id = user_id)
 
+            '''
             for i, msg in enumerate(messages):
                 log.info("MSG[%d] type=%s id=%s content_type=%s",
                     i,
@@ -360,18 +366,22 @@ class AgentExecutor:
                     getattr(msg, "id", None),
                     type(getattr(msg, "content", None)).__name__,
                 )
+            
 
                 log.info("MSG[%d] content=%s", i, str(getattr(msg, "content", ""))[:100])
+            '''
 
             structured_response = result.get("structured_response")
 
             log.info("STRUCTURED RESPONSE TYPE: %s", type(structured_response).__name__)
 
             log.info("Result keys:%s", result.keys())
+            
+            log.info("Agent_output_before_normalizing:%s", structured_response)
 
             agent_output = normalize_agent_output(result)
 
-            log.info("Agent_ouptut:%s", agent_output)
+            log.info("Agent_output_after_normalizing:%s", agent_output)
 
             status = agent_output.status.lower()
 
@@ -383,7 +393,7 @@ class AgentExecutor:
                 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "successful_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 
-            elif route_is_final and status in ("partial_success","failed","blocked",):
+            elif route_is_final and status in ("failed","partial_success","blocked",):
 
                 return {"artifacts_id" : {agent_name : artifact_record.artifact_id}, "failed_route_executed" : {route_id: agent_name}, "final_answer": agent_output}
 

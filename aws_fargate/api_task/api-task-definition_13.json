@@ -1,0 +1,117 @@
+{
+    "containerDefinitions":  [
+                                 {
+                                     "name":  "aep-api",
+                                     "image":  "135053048192.dkr.ecr.us-east-1.amazonaws.com/aep-api:latest",
+                                     "cpu":  0,
+                                     "portMappings":  [
+                                                          {
+                                                              "containerPort":  8000,
+                                                              "hostPort":  8000,
+                                                              "protocol":  "tcp"
+                                                          }
+                                                      ],
+                                     "essential":  true,
+                                     "environment":  [
+                                                         {
+                                                             "name":  "LANGSMITH_TRACING",
+                                                             "value":  "true"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_SSLMODE",
+                                                             "value":  "require"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_HOST",
+                                                             "value":  "aep-postgres.cmpwo8c6ov6h.us-east-1.rds.amazonaws.com"
+                                                         },
+                                                         {
+                                                             "name":  "AZURE_TENANT_ID",
+                                                             "value":  "97019221-64cf-487a-a101-736144013d2b"
+                                                         },
+                                                         {
+                                                             "name":  "LANGSMITH_PROJECT",
+                                                             "value":  "aepdb_aws_prod"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_PORT",
+                                                             "value":  "5432"
+                                                         },
+                                                         {
+                                                             "name":  "AZURE_CLIENT_ID",
+                                                             "value":  "73ea4fd9-9c7f-403d-843b-85d092ab6b35"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_DB",
+                                                             "value":  "aepdb"
+                                                         }
+                                                     ],
+                                     "mountPoints":  [
+
+                                                     ],
+                                     "volumesFrom":  [
+
+                                                     ],
+                                     "secrets":  [
+                                                     {
+                                                         "name":  "POSTGRES_USER",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:rds!db-fda20b28-1298-4ec7-8925-38cf408ebb86-XVQKKY:username::"
+                                                     },
+                                                     {
+                                                         "name":  "POSTGRES_PASSWORD",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:rds!db-fda20b28-1298-4ec7-8925-38cf408ebb86-XVQKKY:password::"
+                                                     },
+                                                     {
+                                                         "name":  "OPENAI_API_KEY",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:aep/openai-api-key-hQ5rFk:OPENAI_API_KEY::"
+                                                     },
+                                                     {
+                                                         "name":  "PORTKEY_API",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:aep/portkey-api-NYXi25:PORTKEY_API::"
+                                                     },
+                                                     {
+                                                         "name":  "GITHUB_ACCESS_TOKEN",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:aep/github-pFtqKZ:GITHUB_ACCESS_TOKEN::"
+                                                     },
+                                                     {
+                                                         "name":  "LANGSMITH_API_KEY",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:aep/langsmith-api-key-WtcXOL:LANGSMITH_API_KEY::"
+                                                     },
+                                                     {
+                                                         "name":  "MCP_AUTH_TOKEN",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:aep/mcp-auth-token-nzOOPm:MCP_AUTH_TOKEN::"
+                                                     },
+                                                     {
+                                                         "name":  "AZURE_CLIENT_SECRET",
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:aep/azure-client-secret-Qnc8ym:AZURE_CLIENT_SECRET::"
+                                                     }
+                                                 ],
+                                     "logConfiguration":  {
+                                                              "logDriver":  "awslogs",
+                                                              "options":  {
+                                                                              "awslogs-group":  "/ecs/aep-api",
+                                                                              "awslogs-region":  "us-east-1",
+                                                                              "awslogs-stream-prefix":  "ecs"
+                                                                          }
+                                                          },
+                                     "systemControls":  [
+
+                                                        ]
+                                 }
+                             ],
+    "family":  "aep-api-task",
+    "taskRoleArn":  "arn:aws:iam::135053048192:role/aepEcsExecTaskRole",
+    "executionRoleArn":  "arn:aws:iam::135053048192:role/ecsTaskExecutionRole",
+    "networkMode":  "awsvpc",
+    "volumes":  [
+
+                ],
+    "placementConstraints":  [
+
+                             ],
+    "requiresCompatibilities":  [
+                                    "FARGATE"
+                                ],
+    "cpu":  "1024",
+    "memory":  "2048"
+}

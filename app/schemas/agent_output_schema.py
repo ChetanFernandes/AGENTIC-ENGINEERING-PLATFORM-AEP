@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
-from typing import  Any
+from typing import  Literal
 
 class AgentOutput(BaseModel):
-    status: str
+    status: Literal["Success", "Failed", "Partial_Success", "Blocked"]
     summary: str|None = None
     result: str | None  = None
     errors: list[str]| None = Field(default_factory=list)
