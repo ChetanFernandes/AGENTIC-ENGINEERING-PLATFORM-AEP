@@ -19,7 +19,7 @@ async def lifespan(app):
         await service_layer.initialize_mcp_checkpointer()
         log.info("Application started")
         yield
-        log.info("Shutting down AEP application")
+        #log.info("Shutting down AEP application")
         
 
     except Exception:
@@ -27,7 +27,8 @@ async def lifespan(app):
         raise
 
     finally:
-        log.info("Application shutting down. Closing MCP manager.")
+        #log.info("Application shutting down. Closing MCP manager.")
+        log.info("Closing MCP manager.")
         await service_layer.agent_executor.mcp_manager.close()
         if service_layer.db_pool is not None:
             await service_layer.db_pool.close()

@@ -37,7 +37,6 @@ class state_Tool_Tracking(AgentMiddleware):
         print("Deep_agent_state_information_before_agent \n")
         print("_"*50)
 
-
         messages = state.get("messages", [])
         if not messages:
             print("Before_agent: no messages in state")
@@ -284,33 +283,33 @@ class state_Tool_Tracking(AgentMiddleware):
 
         if isinstance(response, ToolMessage):
             print("Tool call status ->",response.status)
-            print("Tool_response -> \n",str(response.content[:200]))
+            print("Tool_response -> \n",str(response.content[:100]))
             if response.status == "error":
                 self.execution_events.append({  
                                                 "type" : "tool_result",
-                                                "tool":   response.name or request.tool_call["name"],
+                                                "tool_name":   response.name or request.tool_call["name"],
                                                 "status": response.status,
                                             })
             else:
                 self.execution_events.append({
                 "type": "tool_result",
-                "tool": request.tool_call["name"],
-                "status": "unknown",
-                "result": repr(response)
+                "tool_name": request.tool_call["name"],
+                "status": response.status,
+                "result": repr(response.content)
             })
 
         
         return response
 
       
-    async def aafter_agent(self,state:CustomState, runtime:RuntimeContextSchema):
+    async def aafter_agent(self, state:CustomState, runtime:RuntimeContextSchema):
         try:
 
             print("\n")
             print("Deep_agent_state_after_agent")
             print("-" * 70)
 
-            log.info("Exection_events:%s",self.execution_events)
+            log.info("Exection_events:\n%s",self.execution_events)
 
             existing_learning = ""
 
@@ -330,9 +329,15 @@ class state_Tool_Tracking(AgentMiddleware):
                 log.info("SKILL.MD not availabe yet")
 
             learning = extract_learning(self.execution_events, existing_learning, runtime.context.llm_open_ai, LearningOutput)
+            log.info(
+                        "New learning:\n"
+                        "has_learning=%s\n"
+                        "learning=%s",
+                        learning.has_learning,
+                        learning.learning,
+                    )
 
-            log.info("Successfully extracted new learning:%s", learning)
-
+    
 
             if learning.has_learning and learning.learning:
 
@@ -340,8 +345,7 @@ class state_Tool_Tracking(AgentMiddleware):
 
                 if existing_learning.strip():
 
-                    updated_learning = (
-                                    f"{existing_learning.rstrip()}\n\n{new_learning}")
+                    updated_learning = (f"{existing_learning.rstrip()}\n\n{new_learning}")
                 else:
                     updated_learning = new_learning
 

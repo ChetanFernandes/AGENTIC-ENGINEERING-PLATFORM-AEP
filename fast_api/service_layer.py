@@ -26,7 +26,8 @@ class ServiceLayer:
             await self.agent_executor.mcp_manager.start()
 
             # Start async Postgres checkpointer
-            self.checkpointer  = await self.agent_executor.exit_stack.enter_async_context(AsyncPostgresSaver.from_conn_string(DB_URI))   #as creating a recipe/instruction for a database connection, not necessarily opening the connection yet.
+            self.checkpointer  = await self.agent_executor.exit_stack.enter_async_context(AsyncPostgresSaver.from_conn_string(DB_URI))   
+            #as creating a recipe/instruction for a database connection, not necessarily opening the connection yet.
             #self.checkpointer = await self.checkpointer_context.__aenter__() # Open/initialize this resource and give me the actual checkpointer."
             await self.checkpointer.setup()
 

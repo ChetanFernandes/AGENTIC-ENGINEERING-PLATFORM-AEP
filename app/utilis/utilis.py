@@ -12,7 +12,6 @@ from logger.log import setup_logging
 log = setup_logging()
 import re
 
-import re
 
 def validate_user_id(user_id: str) -> str:
     log.info("Before_validation:%s",user_id)
@@ -115,7 +114,7 @@ def extract_learning(experience, existing_learning,llm_openai,LearningOutput):
                     {existing_learning}
                     """
         learning_chain = ChatPromptTemplate.from_messages([("system",prompt)]) | structured_llm
-        result = learning_chain.invoke({"experience" : experience,"existing_learning":existing_learning})
+        result = learning_chain.invoke({"experience" : experience, "existing_learning":existing_learning})
         return result
     except Exception:
         log.exception("Error occured while extracting learning")
@@ -197,7 +196,6 @@ def normalize_agent_output(result:dict|Any) -> AgentOutput:
         tool_errors = details.get("tool_errors",None)
 
         if tool_errors:
-
             errors.extend(tool_errors)
         
         # ---------------------------------------------------------

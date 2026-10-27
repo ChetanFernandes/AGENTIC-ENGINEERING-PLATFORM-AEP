@@ -68,8 +68,8 @@ class ContextManager():
                 else:
                     log.info("%s not yet executed", optional_agent)
 
-            log.info("Final allowed context:%s",allowed_context)
-            log.info("Final optional context:%s",optional_context)
+            log.info("Final allowed context:\n%s",allowed_context)
+            log.info("Final optional context:\n%s",optional_context)
             if allowed_context or optional_context:
 
                 final_context_data = await self.context_relevance.select_relevant_context(task, llm_openai, allowed_context, optional_context)

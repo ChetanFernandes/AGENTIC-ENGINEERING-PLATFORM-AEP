@@ -104,10 +104,10 @@ class EpisodicMemory:
         return "\n\n".join(normalized)
 
     async def add_execution_history(self,execution_id: str, messages, user_request:str, thread_id:str, user_id: str):
+        
+        """Adding execution history to table episodic_execution_in_progress"""
 
         normalized = self.normalize_message(messages)
-
-        #log.info("Normalized_message:%s",normalized)
 
 
         if execution_id not in self.execution_histories:

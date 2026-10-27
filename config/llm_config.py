@@ -27,6 +27,10 @@ class llm_call:
         llm_open_ai = ChatOpenAI(api_key = self.port_api_key, base_url = self.portkey_gateway_url, 
                                  default_headers = portkey_headers, output_version="responses/v1")
 
+        print("model_name:", llm_open_ai.model_name)
+        print("profile:", llm_open_ai.profile)
+        print("base_url:", llm_open_ai.openai_api_base)
+        
         return llm_open_ai
 
 llm_openai_luna = ChatOpenAI(model="gpt-6-Luna", api_key=OPENAI_API_KEY, use_responses_api=True, output_version="responses/v1",)

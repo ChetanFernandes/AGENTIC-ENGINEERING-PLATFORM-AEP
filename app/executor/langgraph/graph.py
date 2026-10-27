@@ -98,7 +98,6 @@ class AgentExecutor:
             self.sandbox_backend = None
             self.ls_sandbox = None
 
-
     except Exception:
         log.exception("Error while initializing graph")
         raise
@@ -108,7 +107,7 @@ class AgentExecutor:
         try:
             self.sandbox_backend, self.ls_sandbox = sandbox_provision(self.client)
             log.info("user_id:%s",runtime.context.user_id)
-            log.info("llm_open_ai:%s",runtime.context.llm_open_ai)
+            #log.info("llm_open_ai:%s",runtime.context.llm_open_ai)
             log.info("thread_id:%s",config["configurable"].get("thread_id","NA"))
             
             current_question = state["user_request"].strip()
@@ -116,22 +115,24 @@ class AgentExecutor:
             log.info("user_request:%s",current_question)
 
             previous_question_history = state.get("messages", [])
+
             previous_accumulated_questions = []
 
             if previous_question_history:
-                previous_accumulated_questions = []
                 for message in previous_question_history:
                     if isinstance(message, HumanMessage):
                         content = message.content.strip()
-
                         if content != current_question:
                             previous_accumulated_questions.append(content)
 
-            log.info("previous_accumulated_questions:%s\n",previous_accumulated_questions)
+            log.info("previous_accumulated_questions:\n %s",previous_accumulated_questions)
             log.info("Length of previous questions:%s", len(previous_accumulated_questions))
 
-            formatted_questions = format_previous_question(previous_accumulated_questions, current_question)
-            log.info("Formatted_question:%s",formatted_questions)
+            formatted_questions = ""
+
+            if previous_accumulated_questions:
+                formatted_questions = format_previous_question(previous_accumulated_questions, current_question)
+                log.info("Formatted_question:\n%s",formatted_questions)
 
             chat_template = ChatPromptTemplate.from_messages([
                                                         ("system", ROUTER_SYSTEM_PROMPT), 
@@ -181,7 +182,7 @@ class AgentExecutor:
         try:
             ready_agents = state["ready_routes"]
 
-            log.info("Agent ready for execution:%s", ready_agents)
+            log.info("Agent ready for execution:\n%s", ready_agents)
 
             user_id = runtime.context.user_id
 
@@ -262,7 +263,7 @@ class AgentExecutor:
             user_question = state.get("user_question")
 
             log.info("Deep_agent_is_executing_agent -> %s", agent_name)
-            log.info("Task for agent is->%s",task)
+            log.info("Task for agent is->\n%s",task)
             log.info("Route_id->%s",route_id)
             log.info("Context given is -> %s",content)
   
@@ -271,22 +272,22 @@ class AgentExecutor:
             system_prompt = main_agent_system_prompt.replace("{user_memory_file}", user_memory_file)                     
             session_entry = await self.mcp_manager.acquire("github")
             mcp_tools = session_entry.tools
-            searchable_tools = [tool.name for tool in mcp_tools]
+            #searchable_tools = [tool.name for tool in mcp_tools]
             interrupt = InterruptDefinition(session_entry.tools)
 
 
             if self.distructive_tools is None:
                 self.distructive_tools = interrupt.save_distructive_tools()
-                log.info("Calling self distructive function once ->%s",  self.distructive_tools)
+                log.info("Calling self distructive function once ->\n%s",  self.distructive_tools)
             else:
-                log.info("For second round self distructibe tools not called ->%s",self.distructive_tools)
+                log.info("For second round self distructibe tools not called ->\n%s",self.distructive_tools)
 
 
             if not self.interrupt_on:
                 self.interrupt_on = interrupt.define_interrupt_on()
-                log.info("Calling interrupt function once ->%s",self.interrupt_on)
+                log.info("Calling interrupt function once ->\n%s",self.interrupt_on)
             else:
-                log.info("For second round self interrput not called -> %s",self.interrupt_on )
+                log.info("For second round self interrput not called -> \n%s",self.interrupt_on )
             
 
             main_agent_memory_wrapper, main_agent_learning_wrapper, subagent_skills_wrapper = self.store_backend.policy_wrapper()
@@ -377,7 +378,7 @@ class AgentExecutor:
 
             log.info("Result keys:%s", result.keys())
             
-            log.info("Agent_output_before_normalizing:%s", structured_response)
+            #log.info("Agent_output_before_normalizing:%s", structured_response)
 
             agent_output = normalize_agent_output(result)
 
@@ -443,7 +444,7 @@ class AgentExecutor:
 
     def fan_in_routes(self, state: CustomState):
         try:
-            log.info("Parallel route execution completed. Successful=%s Failed=%s",
+            log.info("Parallel route execution completed. \nSuccessful=\n%s \nFailed=\n%s",
                     state.get("successful_route_executed", {}),
                     state.get("failed_route_executed", {})
                 )
@@ -472,6 +473,8 @@ class AgentExecutor:
             if state:
 
                 log.info("user_message_history -> %s", state.get("messages", "NA"))
+
+                log.info("Current user_request -> %s", state.get("user_request", "NA"))
                 
                 log.info("ready_routes -> %s", state.get("ready_routes", "NA"))
 
@@ -484,8 +487,6 @@ class AgentExecutor:
                 log.info("context_given_agent ->%s ",state.get("context_given_agent", "NA"))
 
                 log.info("routing_information ->%s ",state.get("routing_information", "NA"))
-
-                log.info("user_request -> %s", state.get("user_request", "NA"))
 
                 log.info("final_answer -> %s", state.get("final_answer", "NA"))
 
@@ -506,8 +507,8 @@ class AgentExecutor:
             if execution_data:
                 execution_data = await episodic_memory.recover_execution_history(execution_id)
                 log.info(
-                    "Execution history extracted for execution_id=%s, "
-                    "agent_histories=%d",
+                    "Execution history extracted for execution_id=\n%s, "
+                    "agent_histories=\n%d",
                     execution_id,
                     len(execution_data.get("messages", []))
                 )

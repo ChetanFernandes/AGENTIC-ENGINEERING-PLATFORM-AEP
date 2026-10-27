@@ -149,9 +149,7 @@ class MCPManager():
                 f"{logical_server_name}"
             )
 
-        physical_servers = self.server_groups[
-            logical_server_name
-        ]
+        physical_servers = self.server_groups[logical_server_name]
 
         log.info(
             "MCP ACQUIRE START | logical_server=%s | "

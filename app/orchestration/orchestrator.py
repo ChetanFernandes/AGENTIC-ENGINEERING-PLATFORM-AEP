@@ -20,7 +20,7 @@ class RouteOrchestor:
         try:
             self.routing_decision = state["routing_information"]
 
-            log.info("Routing_Decision:%s", self.routing_decision.routes)
+            log.info("Routing_Decision:\n%s", self.routing_decision.routes)
 
             for route in self.routing_decision.routes:
             
@@ -34,14 +34,13 @@ class RouteOrchestor:
 
                     self.agent_no_dependencies[route.route_id] = {"route_id" : route.route_id , "agent" : route.agent,"task":route.task,"is_final":route.is_final}
 
-            log.info("Agent_with_dependencies: %s\n",  self.agent_with_dependencies)
+            log.info("Agent_with_dependencies: \n %s",  self.agent_with_dependencies)
 
-            log.info("Agent_with_no_dependencies: %s\n",  self.agent_no_dependencies)
+            log.info("Agent_with_no_dependencies: \n %s",  self.agent_no_dependencies)
 
             self.length_of_routes = len(self.routing_decision.routes)
 
             log.info("Length of routes -> %s", self.length_of_routes)
-    
 
             self.route_executed = state.get("successful_route_executed",{})
 
@@ -83,7 +82,7 @@ class RouteOrchestor:
                 raise RuntimeError("No agents are ready, but workflow is not complete")
 
             # Execute ALL ready agents
-            log.info(f"Agent_ready_to_execute_-> {self.agent_ready_to_execute}")
+            #log.info(f"Agent_ready_to_execute_-> {self.agent_ready_to_execute}")
 
             return {
                         

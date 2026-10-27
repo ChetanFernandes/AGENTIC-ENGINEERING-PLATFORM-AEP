@@ -27,15 +27,15 @@ class backend:
         self.blob_storage = blob_storage
         self.update_defaults()
 
-    def update_defaults(self):
+    async def update_defaults(self):
 
         namespace_memory = ("main_agent", "main_agent_skill")
         key =  "/AGENTS.md"
         path = Path(r"app/executor/langgraph/AGENTS.md")
-        item = self.store.get(namespace_memory,key)
+        item = self.store.aget(namespace_memory,key)
         #self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
         if not item:
-            self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
+            self.store.aput(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
      
       
         namespace_memory = ("main_agent", "main_agent_learning")
@@ -167,7 +167,7 @@ class backend:
         """ Used to update new learning in the store"""
         namespace = ("main_agent", "main_agent_learning")
         key = "/SKILL.md"
-        await self.store.aput(namespace, key,create_file_data(updated_learning))
+        await self.store.aput(namespace, key, create_file_data(updated_learning))
 
 #----------------------------Read user personal memory------------------------------------------------------
 
@@ -194,10 +194,14 @@ class backend:
 
         # Read existing memory
         existing_memory = await self.store.aget(namespace,key)
+        log.info("User_Existing_Memory:\n%s",existing_memory)
+        # Item(namespace=['users', 'Chetan'], key='/USER_MEMORY.md', 
+        # value={'content': 'Test', 'encoding': 'utf-8', 'created_at': '2026-10-11T15:54:10.989603+00:00', 'modified_at': '2026-10-11T15:54:10.989603+00:00'}, 
+        # created_at='2026-10-11T21:24:10.990085+05:30', updated_at='2026-10-11T21:24:10.990085+05:30')"}
 
         existing_content = ""
 
-        if existing_memory and isinstance(existing_content.value, dict):
+        if existing_memory and isinstance(existing_memory.value, dict):
             existing_content = existing_memory.value.get("content", "")
 
         # Clean new memory
@@ -224,7 +228,7 @@ class backend:
         else:
             updated_content = new_memory
 
-        await self.store.aput(namespace, key,create_file_data(updated_content))
+        await self.store.aput(namespace, key, create_file_data(updated_content))
 
         log.info("%s memory updated", user_id)
 
