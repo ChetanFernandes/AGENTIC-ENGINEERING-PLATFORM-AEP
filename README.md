@@ -102,18 +102,124 @@ These agents can be composed into larger engineering workflows rather than opera
 AEP is deployed using a containerized, multi-agent architecture integrating AWS infrastructure, Azure Blob Storage, GitHub tools, and the Portkey LLM Gateway.
 
 The architecture combines intelligent agent orchestration, persistent memory, external tool execution, checkpointing, human-in-the-loop approvals, and artifact management.
+
+## 3. AEP – AWS & Multi-Cloud Architecture
+
+AEP is deployed using a containerized, multi-agent architecture integrating AWS infrastructure, Azure Blob Storage, GitHub tools, and the Portkey LLM Gateway.
+
+The architecture combines intelligent agent orchestration, persistent memory, external tool execution, checkpointing, human-in-the-loop approvals, and artifact management.
+
 ```mermaid
-flowchart TD
-    A[User] --> B[Streamlit UI]
-    B --> C[FastAPI Backend]
-    C --> D[LangGraph Orchestrator]
-    D --> E[Specialist Agents]
-    E --> F[MCP Manager]
-    D --> G[PostgreSQL RDS]
-    E --> H[Azure Blob Storage]
-    E --> I[Portkey LLM Gateway]
-    F --> J[GitHub Tools]
+flowchart TB
+
+    USER["Users / Developers"]
+
+    subgraph AWS["AWS Cloud - us-east-1"]
+        
+        IGW["Internet Gateway"]
+
+        subgraph VPC["VPC - 172.31.0.0/16"]
+
+            subgraph PUBLIC_A["Public Subnet - us-east-1a<br/>172.31.0.0/20"]
+                UI["Amazon ECS Fargate<br/>Streamlit UI<br/>Port 8501<br/>aep-ui-task"]
+            end
+
+            subgraph PUBLIC_C["Public Subnet - us-east-1c<br/>172.31.16.0/20"]
+                API["Amazon ECS Fargate<br/>FastAPI Backend<br/>Port 8000<br/>aep-api-task"]
+
+                subgraph AGENT_PLATFORM["AEP Agentic Execution Platform"]
+                    ROUTER["Intelligent Router"]
+                    ORCH["LangGraph Orchestrator<br/>Execution Director"]
+
+                    subgraph AGENTS["Specialist Agent Layer"]
+                        REPO["Repository Analysis Agent"]
+                        SEC["Security Analysis Agent"]
+                        QUALITY["Code Quality Agent"]
+                        TEST["Testing Agent"]
+                        OPT["Optimization Agent"]
+                        REFACTOR["Refactoring Agent"]
+                    end
+
+                    HARNESS["AI Execution Harness<br/>Sandbox • HITL • Guardrails<br/>Checkpointing & Recovery"]
+
+                    MCP["MCP Manager<br/>Tool Discovery • Caching<br/>Connection Pooling"]
+                end
+            end
+
+            subgraph PRIVATE_DB["Private RDS Subnets"]
+                RDS["Amazon RDS PostgreSQL 17<br/>aep-postgres<br/>Port 5432"]
+
+                subgraph MEMORY["Persistent Memory & State"]
+                    EPISODIC["Episodic Memory<br/>Execution & Interaction History"]
+                    SEMANTIC["Semantic Memory<br/>User Preferences & Context"]
+                    PROCEDURAL["Procedural Memory<br/>Agent Skills & Instructions"]
+                    CHECKPOINT["LangGraph Checkpointer<br/>Thread State & Recovery"]
+                end
+            end
+
+            SSM["SSM Session Manager<br/>Optional EC2 Tunnel"]
+        end
+
+        subgraph AWS_SERVICES["AWS Supporting Services"]
+            ECR["Amazon ECR<br/>AEP UI & API Images"]
+            IAM["AWS IAM<br/>Execution Role & Task Role"]
+            CW["Amazon CloudWatch<br/>Application Logs"]
+            SM["AWS Secrets Manager<br/>Database Credentials"]
+        end
+    end
+
+    subgraph EXTERNAL["External Services & Integrations"]
+        PORTKEY["Portkey LLM Gateway"]
+        LLM["OpenAI / Configured LLM Providers"]
+        GITHUB["GitHub Tools"]
+        AZURE["Azure Blob Storage<br/>Agent Outputs & Artifacts"]
+    end
+
+    USER --> IGW
+    IGW --> UI
+    UI -->|"HTTP API - Port 8000"| API
+
+    API --> ROUTER
+    ROUTER --> ORCH
+
+    ORCH --> REPO
+    ORCH --> SEC
+    ORCH --> QUALITY
+    ORCH --> TEST
+    ORCH --> OPT
+    ORCH --> REFACTOR
+
+    AGENTS --> HARNESS
+    HARNESS --> MCP
+
+    MCP -->|"MCP Tool Calls"| GITHUB
+
+    ORCH -->|"LLM Requests"| PORTKEY
+    PORTKEY --> LLM
+
+    HARNESS -->|"Store / Retrieve Artifacts"| AZURE
+
+    API --> RDS
+    RDS --> EPISODIC
+    RDS --> SEMANTIC
+    RDS --> PROCEDURAL
+    RDS --> CHECKPOINT
+
+    USER -.->|"Feedback & Preferences"| SEMANTIC
+    USER -.->|"Interaction History"| EPISODIC
+
+    ECR -.->|"Container Images"| UI
+    ECR -.->|"Container Images"| API
+
+    IAM -.-> UI
+    IAM -.-> API
+    API -.-> CW
+    API -.-> SM
+
+    SSM -.->|"Secure Port Forwarding"| RDS
+
 ```
+
 
 
 
