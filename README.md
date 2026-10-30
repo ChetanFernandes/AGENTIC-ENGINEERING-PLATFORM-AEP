@@ -10,6 +10,7 @@ The objective is to move beyond standalone AI assistants toward a **controlled, 
 
 ---
 
+
 ## 1. What Problem Does AEP Solve?
 
 Traditional AI coding assistants generally operate as a single conversational agent.
@@ -97,7 +98,24 @@ These agents can be composed into larger engineering workflows rather than opera
 
 ---
 
-# 3. High-Level Architecture
+# 3. AEP – AWS & Multi-Cloud Architecture
+AEP is deployed using a containerized, multi-agent architecture integrating AWS infrastructure, Azure Blob Storage, GitHub tools, and the Portkey LLM Gateway.
+
+The architecture combines intelligent agent orchestration, persistent memory, external tool execution, checkpointing, human-in-the-loop approvals, and artifact management.
+```mermaid
+flowchart TD
+    A[User] --> B[Streamlit UI]
+    B --> C[FastAPI Backend]
+    C --> D[LangGraph Orchestrator]
+    D --> E[Specialist Agents]
+    E --> F[MCP Manager]
+    D --> G[PostgreSQL RDS]
+    E --> H[Azure Blob Storage]
+    E --> I[Portkey LLM Gateway]
+    F --> J[GitHub Tools]
+```
+
+
 
 ```text
                          User Request
