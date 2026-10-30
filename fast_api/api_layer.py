@@ -16,12 +16,13 @@ async def lifespan(app):
     try:
         loop = asyncio.get_running_loop()
 
+        await service_layer.initialize_service()
         await service_layer.initialize_mcp_checkpointer()
+
         log.info("Application started")
         yield
         #log.info("Shutting down AEP application")
         
-
     except Exception:
         log.exception("Error during AEP application lifecycle")
         raise

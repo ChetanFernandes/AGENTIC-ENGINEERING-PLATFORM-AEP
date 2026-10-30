@@ -55,11 +55,11 @@
                                      "secrets":  [
                                                      {
                                                          "name":  "POSTGRES_USER",
-                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:rds!db-fda20b28-1298-4ec7-8925-38cf408ebb86-XVQKKY:username::"
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:rds!db-cd352647-067f-4939-8639-2c6ac4ea4f89-9vcaWv:username::"
                                                      },
                                                      {
                                                          "name":  "POSTGRES_PASSWORD",
-                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:rds!db-fda20b28-1298-4ec7-8925-38cf408ebb86-XVQKKY:password::"
+                                                         "valueFrom":  "arn:aws:secretsmanager:us-east-1:135053048192:secret:rds!db-cd352647-067f-4939-8639-2c6ac4ea4f89-9vcaWv:password::"
                                                      },
                                                      {
                                                          "name":  "OPENAI_API_KEY",

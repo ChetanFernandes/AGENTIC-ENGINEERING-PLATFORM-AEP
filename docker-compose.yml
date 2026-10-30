@@ -1,6 +1,7 @@
 
 services:
   api:
+    image: 135053048192.dkr.ecr.us-east-1.amazonaws.com/aep-api:latest
     build:
       context: .
       dockerfile: Dockerfile.api
@@ -22,6 +23,7 @@ services:
       - "${USERPROFILE}/.azure:/root/.azure:ro"
 
   ui:
+    image: 135053048192.dkr.ecr.us-east-1.amazonaws.com/aep-ui:latest
     build:
       context: .
       dockerfile: Dockerfile.ui

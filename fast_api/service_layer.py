@@ -15,11 +15,14 @@ from config.llm_config import llm_call
 
 class ServiceLayer:
     def __init__(self):
-        self.agent_executor = AgentExecutor()
+        self.agent_executor = None
         self.checkpointer = None
         self.db_pool = None
         self.llm_open_ai = None
 
+    async def initialize_service(self):
+        self.agent_executor = AgentExecutor()
+        await self.agent_executor.initialize()
 
     async def initialize_mcp_checkpointer(self):
         try:

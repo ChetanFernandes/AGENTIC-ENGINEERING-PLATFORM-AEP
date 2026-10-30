@@ -286,33 +286,81 @@ def format_previous_question(previous_messages:list,current_question):
 
     return "\n\n".join(f"previous_requests: {i+1}: {message}" for i, message in enumerate(requests))
 
+import time
+
+def wait_for_sandbox_deletion(client,sandbox_name:str, timeout:int = 60, poll_interval:float = 2)-> bool:
+
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        sandboxes  = client.list_sandboxes()
+        existing = next((sandbox for sandbox in sandboxes if sandbox.name =="aep-sandbox"),None)
+        if existing is None:
+            log.info("Sandbox deletion completed: %s", sandbox_name)
+            return True
+        
+        status_info = client.get_sandbox_status(sandbox_name)
+        status = status_info.status.lower()
+        log.info("Sandbox %s status: %s", sandbox_name, status)
+        
+        time.sleep(poll_interval)
+
+    raise TimeoutError(
+        f"Sandbox '{sandbox_name}' was still deleting "
+        f"after {timeout} seconds"
+    )
+
+
 def sandbox_provision(client):
+    name = "aep-sandbox"
     try:
         sandboxes = client.list_sandboxes()
-        ls_sandbox = next((sandbox for sandbox in sandboxes if sandbox.name =="aep-sandbox"),None)
+        ls_sandbox = next((sandbox for sandbox in sandboxes if sandbox.name == name),None)
         log.info("List of existing sandbox:%s",  ls_sandbox)
 
-        if  ls_sandbox:
-            status =  client.get_sandbox_status(ls_sandbox.name)
-            log.info("status of Sandbox:%s",status.status)
-
-        if ls_sandbox and status.status in ("running","ready","idle","provisioning"):
-            log.info("Reusing Sandbox:%s", ls_sandbox.name)
-
-        elif ls_sandbox and status.status == "stopped":
-            client.start_sandbox(ls_sandbox.name, timeout=600)
-            log.info("Sandbox started successfully:%s", ls_sandbox.name)
-
-        elif ls_sandbox and status.status == "failed":
-            client.delete_sandbox(ls_sandbox.name)
-            ls_sandbox = client.create_sandbox(name="aep-sandbox")
-            log.info("Failed Sandbox deleted and created new one:%s", ls_sandbox.name)
+        if ls_sandbox is None:
+            ls_sandbox = client.create_sandbox(name=name, timeout=600,)
+            log.info("Created sandbox: %s", ls_sandbox.name)
 
         else:
-            ls_sandbox = client.create_sandbox(name="aep-sandbox")
-            log.info("Created sandbox -> %s", ls_sandbox.name)
+            status_info =  client.get_sandbox_status(ls_sandbox.name)
+            current_status = status_info.status.lower()
+            log.info(
+                "Existing sandbox: %s, status: %s",
+                name,
+                current_status)
+
+            if current_status in ("running","ready","idle",):
+                ls_sandbox = client.get_sandbox(name)
+                log.info("Reusing Sandbox:%s", ls_sandbox.name)
+
+            elif current_status == "provisioning":
+                ls_sandbox = client.wait_for_sandbox(name, timeout=600,)
+                log.info("Sandbox is ready: %s", name)
+    
+
+            elif current_status == "stopped":
+                ls_sandbox = client.start_sandbox(name, timeout=600,)
+                log.info("Sandbox restarted: %s", name)
+
+            elif current_status in ("failed", "deleting"):
+                if current_status == "failed":
+                    client.delete_sandbox(name)
+                    log.info("Requested deletion of failed sandbox: %s", name)
+
+                wait_for_sandbox_deletion(client, ls_sandbox.name)
+        
+                ls_sandbox = client.create_sandbox(name=name,  timeout=600,)
+                log.info("Created replacement sandbox: %s", name)
+
+            else:
+                raise RuntimeError(
+                    f"Unexpected status for sandbox '{name}': "
+                    f"{current_status}"
+                )
 
         sandbox_backend = LangSmithSandbox(sandbox = ls_sandbox)
+
         return sandbox_backend , ls_sandbox
     except Exception:
         log.exception("Sandbox provisioning failed")

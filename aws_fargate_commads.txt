@@ -1,0 +1,495 @@
+1. Autheticate with AWS 
+    - aws sts get-caller-identity
+    - aws configure get region
+
+2. Create ECR
+   aws ecr create-repository --repository-name aep-api --region us-east-1
+   aws ecr create-repository --repository-name aep-ui --region us-east-1
+
+3. Verify the repositories
+    aws ecr describe-repositories --repository-names aep-api aep-ui --region us-east-1 --query "repositories[*].[repositoryName,repositoryUri]" --output table
+
+4. Steps to push docker image to ECR (AWS)
+
+    Step - 1 — Authenticate Docker with ECR - Docker needs permission to push an image into ECR.
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 135053048192.dkr.ecr.us-east-1.amazonaws.com   
+
+    Step - 2 — Tag your existing API image - It simply gives the same image another name/tag.
+
+        - docker tag api_image:latest 135053048192.dkr.ecr.us-east-1.amazonaws.com/aep-api:latest
+
+            - api_image - This is the image currently on your laptop.
+            - 135053048192 — AWS account ID
+            - us-east-1 — AWS region
+            - amazonaws.com — AWS domain
+            - aep-api — ECR repository name
+            - latest — image tag
+
+    step - 3 - Push images to docker
+        - docker push 135053048192.dkr.ecr.us-east-1.amazonaws.com/aep-api:latest
+            - Repository - aep-api - The ECR repository where your API image will be stored. It must already exist.
+            - Image tag - latest - The label identifying this version of your image
+
+    step - 4 - check images - To check whats inside ECR
+
+            - aws ecr describe-images --repository-name demand-forecasting --region us-east-1 --query "imageDetails[*].{Tags:imageTags,Digest:imageDigest,PushedAt:imagePushedAt}" --output table 
+
+            - aws ecr describe-images --repository-name aep-api --region us-east-1 --query "imageDetails[?imageTags!=null].[imageTags[0],imageDigest]" --output table
+
+            - aws ecr describe-images --repository-name aep-ui --region us-east-1 --query "imageDetails[?imageTags!=null].[imageTags[0],imageDigest]" --output table
+
+5. To check the VPC
+    - aws ec2 describe-vpcs --region us-east-1 --query "Vpcs[].[VpcId,CidrBlock,IsDefault]" --output table
+
+6. Find default subnet
+    - aws ec2 describe-subnets --region us-east-1 --filters "Name=vpc-id,Values=vpc-0a0f89f8075ff0c57" --query "Subnets[].[SubnetId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch]" --output table
+
+7. Identify the main route table . Every VPC has a main route table. A subnet uses this table by default unless it has an explicit association with another route table.
+   
+    - aws ec2 describe-route-tables --region us-east-1 --filters "Name=association.main,Values=true" --query "RouteTables[*].{RouteTable:RouteTableId,Routes:Routes[*].[DestinationCidrBlock,GatewayId,State]}" --output json
+
+8. Check Internet Gateways - To verify that an Internet Gateway (IGW) exists and is attached to our VPC. 
+   The IGW provides a path between the VPC and the internet when routing and security rules permit it. 
+   It does not, by itself, make every resource publicly accessible.
+
+   -  aws ec2 describe-internet-gateways --region us-east-1 --query "InternetGateways[*].{IGW:InternetGatewayId,AttachedVPCs:Attachments[*].VpcId,State:Attachments[*].State}" --output table
+
+9. To determine which subnets have a route to the Internet Gateway and which subnets remain private.
+   -   aws ec2 describe-route-tables --region us-east-1 --filters "Name=vpc-id,Values=vpc-0a0f89f8075ff0c57" --query "RouteTables[*].{RouteTable:RouteTableId,Subnets:Associations[*].SubnetId,Routes:Routes[*].[DestinationCidrBlock,GatewayId,NatGatewayId,State]}" --output json
+
+
+10. Verify subnet routing - Run this command to list each subnet and its effective route table: 
+    
+    -  aws ec2 describe-route-tables --region us-east-1 --filters "Name=association.main,Values=true" --query "RouteTables[*].{RouteTable:RouteTableId,Routes:Routes[*].[DestinationCidrBlock,GatewayId,State]}" --output json
+    
+    Identify the main route table . Every VPC has a main route table. A subnet uses this table by default unless it has an explicit association with another route table.
+    Your output previously showed the main route table: rtb-0014e65d5643f6059
+        Its routes are:
+        Destination	     Target	            Meaning
+        172.31.0.0/16	 local	            Resources within the VPC can communicate using VPC-local routing, subject to security rules.
+         0.0.0.0/0	     Internet Gateway	Traffic destined for other IPv4 networks has a route toward the internet gateway.
+
+    We use this command to confirm the default routing behavior for subnets that don't have their own explicit route-table association.
+    Important: This command lists only the main route table. It does not show the route table explicitly associated with your RDS subnets.
+
+11. List your security groups
+    - aws ec2 describe-security-groups --region us-east-1 --query "SecurityGroups[*].{GroupId:GroupId,GroupName:GroupName,VpcId:VpcId}" --output table
+
+12. TO verify subnet CIDR - 
+    - aws ec2 describe-subnets --subnet-ids subnet-0b8c68873973c2c68 subnet-08e37092c6485e57b --region us-east-1 --query "Subnets[*].{SubnetId:SubnetId,AvailabilityZone:AvailabilityZone,CIDR:CidrBlock,MapPublicIpOnLaunch:MapPublicIpOnLaunch}" --output table
+
+13. Check whether your PostgreSQL database already exists in AWS
+  -  aws rds describe-db-instances --region us-east-1 --query "DBInstances[*].{Identifier:DBInstanceIdentifier,Status:DBInstanceStatus,Engine:Engine,Endpoint:Endpoint.Address,Port:Endpoint.Port,PubliclyAccessible:PubliclyAccessible}" --output table
+
+14. Create the ECS Fargate cluster and verify.
+  -  aws ecs create-cluster --cluster-name aep-cluster --region us-east-1
+  -  aws ecs describe-clusters --clusters aep-cluster --region us-east-1 --query "clusters[*].[clusterName,status]" --output table
+
+15. Create the ECS task execution role
+    - Check whether the role already exists
+        - aws iam get-role --role-name ecsTaskExecutionRole
+    
+    - Create the trust policy
+        - (
+                                    echo {
+                                    echo   "Version": "2012-10-17",
+                                    echo   "Statement": [
+                                    echo     {
+                                    echo       "Effect": "Allow",
+                                    echo       "Principal": {
+                                    echo         "Service": "ecs-tasks.amazonaws.com"
+                                    echo       },
+                                    echo       "Action": "sts:AssumeRole"
+                                    echo     }
+                                    echo   ]
+                                    echo }
+                                    ) > ecs-trust-policy.json
+
+    - Verify the file was created - type ecs-trust-policy.json
+
+    - Create the IAM role - aws iam create-role --role-name ecsTaskExecutionRole --assume-role-policy-document file://ecs-trust-policy.json
+       - We are creating an identity called ecsTaskExecutionRole.
+       - But simply creating the role does not give it permission to access AWS resources.
+       - We are defining: a. What is the role's name? b. Which AWS service is allowed to assume (use) this role?
+       - The ecs-trust-policy.json defines the trust relationship.
+       - I am allowing ECS tasks to assume and use this role." 
+       - This is called a Trust Policy.
+
+    - Attach the required AWS policy - aws iam attach-role-policy --role-name ecsTaskExecutionRole --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+       - Now we are assigning permissions to the role.
+       - This AWS-managed policy allows ECS to:
+            - Authenticate with Amazon ECR.
+            - Pull Docker images from ECR.
+            - Create CloudWatch log streams.
+            - Write container logs to CloudWatch Logs.
+       - This is called a Permissions Policy. 
+
+    -  Verify the attachment
+        -  aws iam list-attached-role-policies --role-name ecsTaskExecutionRole --output table -
+
+    - Create the CloudWatch log groups and configure the ECS task definitions for your API and Streamlit UI.
+
+        aws logs create-log-group --log-group-name /ecs/aep-api --region us-east-1
+        aws logs create-log-group --log-group-name /ecs/aep-ui --region us-east-1
+
+    - Then set log retention to 14 days:
+        aws logs put-retention-policy --log-group-name /ecs/aep-ui --retention-in-days 14 --region us-east-1
+        aws logs put-retention-policy --log-group-name /ecs/aep-api --retention-in-days 14 --region us-east-1
+
+16. Create two security groups
+    -  UI security groups
+       - aws ec2 create-security-group --group-name aep-ui-sg --description "Security group for AEP Streamlit UI" --vpc-id vpc-0a0f89f8075ff0c57 --region us-east-1
+       - output - sg-0cf57c1b1bff6af5c
+
+    - API security groups
+       - aws ec2 create-security-group --group-name aep-api-sg --description "Security group for AEP FastAPI backend" --vpc-id vpc-0a0f89f8075ff0c57 --region us-east-1
+       - output - sg-sg-0f0c5c4a1d4966dc8
+
+17. Allow UI to API connection
+    -  aws ec2 authorize-security-group-ingress --group-id sg-0f0c5c4a1d4966dc8 --protocol tcp --port 8000 --source-group sg-0cf57c1b1bff6af5c --region us-east-1
+
+        Parameter	                                                        Meaning
+        -- authorize-security-group-ingress                             	Add an inbound traffic rule
+        --group-id	                                                        The security group being modified — API group
+        --protocol tcp	                                                    Allow TCP traffic
+        --port 8000	                                                        Allow traffic to the API port
+        --source-group	                                                    Only resources associated with the UI security group are allowed by this rule
+        --region us-east-1	
+                                                        AWS region where the security group exists
+18. verify - 
+    aws ec2 describe-security-groups --group-ids sg-0f0c5c4a1d4966dc8 --region us-east-1 --query "SecurityGroups[0].IpPermissions" --output json
+
+19. Add the inbound rule to the UI security group
+    aws ec2 authorize-security-group-ingress --group-id sg-0cf57c1b1bff6af5c --protocol tcp --port 8501 --cidr 49.206.131.105/32 --region us-east-1
+    - 49.206.131.105/32 - this laptop public IP. I can replace it with 0.0.0.0/0 to allow outside trafic correct
+
+20. Check the ECS networking prerequisites
+    Before launching the tasks, let's confirm the default VPC has enough networking support for Fargate and check whether any load balancers already exist.
+    1. Check the subnet public-IP setting and available IPs
+       aws ec2 describe-subnets --region us-east-1 --filters "Name=vpc-id,Values=vpc-0a0f89f8075ff0c57" --query "Subnets[*].{Subnet:SubnetId,AZ:AvailabilityZone,AvailableIPs:AvailableIpAddressCount,AutoPublicIP:MapPublicIpOnLaunch}" --output table
+
+    2. Check for existing load balancers
+       aws elbv2 describe-load-balancers --region us-east-1 --query "LoadBalancers[*].{Name:LoadBalancerName,Type:Type,Scheme:Scheme,State:State.Code,VPC:VpcId}" --output table
+
+
+21. Check whether your PostgreSQL database already exists in AWS
+    - aws rds describe-db-instances --region us-east-1 --query "DBInstances[*].{Identifier:DBInstanceIdentifier,Status:DBInstanceStatus,Engine:Engine,Endpoint:Endpoint.Address,Port:Endpoint.Port,PubliclyAccessible:PubliclyAccessible}" --output table
+
+22. Create private subnets for RDS - Your existing six subnets are configured for public IP assignment. 
+
+    - For a production database, let's create two dedicated private subnets in different Availability Zones for RDS. 
+    - AWS recommends a DB subnet group spanning at least two Availability Zones. 
+    - We'll use these CIDR ranges, which don't overlap with the six existing subnet ranges you listed:
+        Setting	                         Private subnet A	           Private subnet B
+            Availability Zone	            us-east-1a	                 us-east-1b
+            CIDR	                        172.31.96.0/20	             172.31.112.0/20
+            Public IP assignment	        Disabled	                 Disabled
+
+23. Create private subnet A -  
+    - aws ec2 create-subnet --vpc-id vpc-0a0f89f8075ff0c57 --cidr-block 172.31.96.0/20 --availability-zone us-east-1a --region us-east-1
+
+24. Create private subnet B - 
+    - aws ec2 create-subnet --vpc-id vpc-0a0f89f8075ff0c57 --cidr-block 172.31.112.0/20 --availability-zone us-east-1b --region us-east-1
+    
+25. Disable automatic public IP assignment - 
+    - aws ec2 modify-subnet-attribute --subnet-id SUBNET_ID --no-map-public-ip-on-launch --region us-east-1
+
+26. Verify the created subnets - 
+    - aws ec2 describe-subnets --region us-east-1 --filters "Name=vpc-id,Values=vpc-0a0f89f8075ff0c57" "Name=cidr-block,Values=172.31.96.0/20,172.31.112.0/20" --query "Subnets[*].{SubnetId:SubnetId,AZ:AvailabilityZone,CIDR:CidrBlock,AutoPublicIP:MapPublicIpOnLaunch,AvailableIPs:AvailableIpAddressCount}" --output table
+
+27. Create the private route table  
+    - aws ec2 create-route-table --vpc-id vpc-0a0f89f8075ff0c57 --region us-east-1
+        - The response will contain a RouteTableId similar to rtb-....
+        - Copy that ID and run these two commands, replacing ROUTE_TABLE_ID with the actual value.
+
+28. Associate subnet A and B with above created private routing table
+    - aws ec2 associate-route-table --route-table-id ROUTE_TABLE_ID --subnet-id subnet-0b8c68873973c2c68 --region us-east-1
+    - aws ec2 associate-route-table --route-table-id ROUTE_TABLE_ID --subnet-id subnet-08e37092c6485e57b --region us-east-1
+
+29. Verify the private route table
+    - aws ec2 describe-route-tables --region us-east-1 --filters "Name=vpc-id,Values=vpc-0a0f89f8075ff0c57" --query "RouteTables[*].{RouteTableId:RouteTableId,Associations:Associations[*].SubnetId,Routes:Routes[*].[DestinationCidrBlock,GatewayId,State]}" --output json
+
+30 . Create the RDS DB subnet group - 
+      - A DB subnet group tells Amazon RDS which subnets it can use for the database. 
+      - We'll include both private subnets in different Availability Zones
+
+    - aws rds create-db-subnet-group --db-subnet-group-name aep-private-db-subnets --db-subnet-group-description "Private subnets for AEP production PostgreSQL" --subnet-ids subnet-0b8c68873973c2c68 subnet-08e37092c6485e57b --region us-east-1
+
+31. Verify the subnet group 
+    - aws rds describe-db-subnet-groups --db-subnet-group-name aep-private-db-subnets --region us-east-1 --query "DBSubnetGroups[0].{Name:DBSubnetGroupName,Status:SubnetGroupStatus,Subnets:Subnets[*].{Subnet:SubnetIdentifier,AZ:SubnetAvailabilityZone.Name,Status:SubnetStatus}}" --output json
+
+32. Create a dedicated RDS security group - 
+    - We'll allow PostgreSQL traffic on port 5432 only from the AEP API security group . The database itself will remain private.
+
+    - aws ec2 create-security-group --group-name aep-rds-sg --description "Security group for private AEP production PostgreSQL database" --vpc-id vpc-0a0f89f8075ff0c57 --region us-east-1
+    - Output - 	sg-09d8ae58a41013c1f
+
+33. Allow PostgreSQL access from the AEP API only  - 
+    - aws ec2 authorize-security-group-ingress --group-id sg-09d8ae58a41013c1f --protocol tcp --port 5432 --source-group sg-0f0c5c4a1d4966dc8 --region us-east-1
+
+34. Verify the rule -  
+    - aws ec2 describe-security-groups --group-ids sg-09d8ae58a41013c1f --region us-east-1 --query "SecurityGroups[0].IpPermissions" --output json
+
+35. Create the RDS database -
+    - We are using --manage-master-user-password.  
+    - This tells AWS to manage the database master password in Secrets Manager instead of requiring us to specify a password directly in the creation command.
+
+    - aws rds create-db-instance --db-instance-identifier aep-postgres --engine postgres --engine-version 17.11 --db-instance-class db.t4g.small --allocated-storage 20 --storage-type gp3 --storage-encrypted --db-name aepdb --master-username aepadmin --manage-master-user-password --no-publicly-accessible --no-multi-az --backup-retention-period 7 --db-subnet-group-name aep-private-db-subnets --vpc-security-group-ids sg-09d8ae58a41013c1f --enable-cloudwatch-logs-exports postgresql --auto-minor-version-upgrade --region us-east-1
+
+36. - Check whether the database is ready
+    - aws rds describe-db-instances --db-instance-identifier aep-postgres --region us-east-1 --query "DBInstances[0].{Status:DBInstanceStatus,Endpoint:Endpoint.Address,Port:Endpoint.Port,Engine:EngineVersion,Secret:MasterUserSecret.SecretArn}" --output json
+
+37. - Verify the RDS secret
+      - We needed to confirm two things:
+        - Status is active: AWS has finished preparing the managed secret.
+        - Secret ARN is available: We have the exact identifier to reference in the ECS task definition.
+
+      - aws rds describe-db-instances --db-instance-identifier aep-postgres --region us-east-1 --query "DBInstances[0].MasterUserSecret.{Status:SecretStatus,SecretArn:SecretArn}" --output json
+
+38  - Grant the ECS execution role access to the RDS secret
+
+        - create a policy rds-secret-policy.json
+        - Now attach it to the execution role: 
+          - aws iam put-role-policy --role-name ecsTaskExecutionRole --policy-name AEPReadRDSSecret --policy-document file://rds-secret-policy.json
+        - verufy the policy attachemnt 
+          - aws iam get-role-policy --role-name ecsTaskExecutionRole --policy-name AEPReadRDSSecret --query "PolicyName" --output text
+
+39 -  Add secrets in secret manager
+
+40 -  Confirm AWS can find all six application secrets
+      - aws secretsmanager list-secrets --region us-east-1 --query "SecretList[?starts_with(Name, 'aep/')].[Name,ARN]" --output table
+
+41 -  Grant ECS access to the application secrets. 
+      The execution role already has permission to read the RDS-managed secret. We'll add access to the six application secrets without replacing that existing permission.
+
+42 -  First, create a policy file.
+      - aws iam put-role-policy --role-name ecsTaskExecutionRole --policy-name AEPReadApplicationSecrets --policy-document file://aws_fargate/aep-app-secrets-policy.json
+
+43 -  Verify it was saved
+      - aws iam get-role-policy --role-name ecsTaskExecutionRole --policy-name AEPReadApplicationSecrets --query "PolicyName" --output text
+
+44  - Creation of API task definition
+       - Refer file - AEP\aws_fargate\api_task\api-task-definition_13.json
+
+45  - Validate the JSON - 
+       - python -m json.tool aws_fargate\aep-api-task-def.json
+
+46  - Register the task definition - 
+       - aws ecs register-task-definition --cli-input-json file://aws_fargate\api_task\api-task-definition_13.json --region us-east-1 --query "taskDefinition.{Family:family,Revision:revision,Status:status,ExecutionRole:executionRoleArn,CPU:cpu,Memory:memory}" --output json
+
+47  - Verify the registered revision
+       - aws ecs describe-task-definition --task-definition aep-api-task:2 --region us-east-1 --query "taskDefinition.containerDefinitions[0].{Name:name,Image:image,Environment:environment,Secrets:secrets,Ports:portMappings[*].containerPort}" --output json
+
+48  - Launching API task
+       -   aws ecs run-task --cluster aep-cluster --launch-type FARGATE --task-definition aep-api-task:13 --network-configuration "awsvpcConfiguration={subnets=[subnet-017229d7a5d14863f,subnet-09095ef675d97c0cd], securityGroups=[sg-0f0c5c4a1d4966dc8],
+           assignPublicIp=ENABLED}" --platform-version LATEST --region us-east-1 --query "tasks[*].{TaskArn:taskArn,LastStatus:lastStatus,DesiredStatus:desiredStatus}" --output json
+       
+       -    What this command does
+            - Uses the existing ECS cluster aep-cluster.
+            - Launches the API container using aep-api-task:13.
+            - Lets ECS place the task in either of the two selected public subnets.
+            - Attaches aep-api-sg, which permits inbound port 8000 only from the UI security group.
+            - Assigns a public IP to support outbound access to external services.
+
+       -  Outptu - It will give task - ID
+
+49  - Verify the status of TASK
+        aws ecs describe-tasks --cluster aep-cluster --tasks 7ac0e989c4d34c8886fe7ddcad9afcac --region us-east-1 --query "tasks[*].{LastStatus:lastStatus,Health:healthStatus,StoppedReason:stoppedReason,Containers:containers[*].{Name:name,LastStatus:lastStatus,ExitCode:exitCode,Reason:reason}}" --output json
+
+50 -  Check API logs   
+        aws logs tail /ecs/aep-api --since 10m --follow --region us-east-1
+
+51 -  T0 get the private IP of API instance. We need it to put in UI task defintion
+        aws ecs describe-tasks --cluster aep-cluster --region us-east-1 --tasks (aws ecs list-tasks --cluster aep-cluster --region us-east-1 --family aep-api-task --desired-status RUNNING --query "taskArns[]" --output text).Split() 
+        --query "tasks[*].{TaskId:taskArn,Revision:taskDefinitionArn,Status:lastStatus,PrivateIP:attachments[0].details[?name=='privateIPv4Address'].value|[0]}" --output table
+
+52 - Crate a UI task defintion
+    
+    - Refer - AEP\aws_fargate\ui_tasks\aep-ui-task_13.json
+
+53 - Luanch UI task
+    - aws ecs run-task --cluster aep-cluster --launch-type FARGATE --task-definition aep-ui-task:13 --network-configuration "awsvpcConfiguration={subnets=[subnet-017229d7a5d14863f],securityGroups=[sg-0cf57c1b1bff6af5c],assignPublicIp=ENABLED}" --platform-version LATEST --region us-east-1 --count 1 --query "tasks[*].{TaskArn:taskArn,LastStatus:lastStatus,DesiredStatus:desiredStatus}" --output json
+
+
+54 - To pull task definitom
+    - aws ecs describe-task-definition --task-definition aep-ui-task:13 --region us-east-1 --query "taskDefinition" --output json > api-task-definition.json
+
+55 - To remove unrequired contents
+
+    - powershell -NoProfile -Command "$td = Get-Content '.\aws_fargate\ui_tasks\aep-ui-task_7.json' -Raw | ConvertFrom-Json; @('taskDefinitionArn','revision','status','requiresAttributes','compatibilities','registeredAt','registeredBy','deregisteredAt') | ForEach-Object { $td.PSObject.Properties.Remove($_) }; $td | ConvertTo-Json -Depth 100 | Set-Content '.\aws_fargate\ui_tasks\aep-ui-task_8.json' -Encoding ascii; Write-Host 'Cleaned UI task definition saved successfully'"
+
+56 - Validate the JSON
+
+    - powershell -NoProfile -Command "Get-Content '.\aws_fargate\ui_tasks\aep-ui-task_8.json' -Raw | ConvertFrom-Json | Out-Null; Write-Host 'JSON validation successful'"
+
+57 - Create tunnel to connect to RDS from VS Code without making RDS publicly accessible using below parameetrs.
+
+        - AWS account: 135053048192
+        - Region: us-east-1
+        - RDS endpoint: aep-postgres.cmpwo8c6ov6h.us-east-1.rds.amazonaws.com
+        - RDS port: 5432
+        - VPC: vpc-0a0f89f8075ff0c57
+        - RDS security group: sg-09d8ae58a41013c1f
+
+58 - Set the default region:
+      - aws configure set region us-east-1
+
+59 - Get the VPC and subnet details
+      - Check the VPC:
+         - aws ec2 describe-vpcs --vpc-ids vpc-0a0f89f8075ff0c57 --region us-east-1 --query "Vpcs[0].[VpcId,CidrBlock,State]" --output table
+      - Find a public subnet in that VPC:
+         - aws ec2 describe-subnets --filters "Name=vpc-id,Values=vpc-0a0f89f8075ff0c57" --region us-east-1 --query "Subnets[*].[SubnetId,CidrBlock,AvailabilityZone,MapPublicIpOnLaunch]" --output table
+      - Choose a subnet that has a route to an Internet Gateway and can assign a public IP. We need outbound internet access for the EC2 instance to communicate with AWS Systems Manager (SSM).
+
+60 - Confirm the subnet has internet connectivity
+      - Based on our earlier VPC inspection, the candidate subnet is: subnet-017229d7a5d14863f
+
+61 - Check its route table:
+      - aws ec2 describe-route-tables --filters "Name=association.subnet-id,Values=subnet-017229d7a5d14863f" --region us-east-1 --query "RouteTables[*].[RouteTableId,Routes[*].[DestinationCidrBlock,GatewayId]]" --output json
+
+      - If no route table is returned, it inherits the VPC's main route table. Check that:
+
+      - aws ec2 describe-route-tables --filters "Name=vpc-id,Values=vpc-0a0f89f8075ff0c57" "Name=association.main,Values=true" --region us-east-1 --query "RouteTables[*].[RouteTableId,Routes[*].[DestinationCidrBlock,GatewayId]]" --output json
+
+      - We need a route for 0.0.0.0/0 through an Internet Gateway (igw-...).
+
+      - If above is confirmed, use: 
+         - set SUBNET_ID=subnet-017229d7a5d14863f
+
+62 - Create a new security group for the EC2 tunnel
+      - aws ec2 create-security-group --group-name AEP-New-SSM-Tunnel-SG --description "Security group for new AEP SSM tunnel instance" --vpc-id vpc-0a0f89f8075ff0c57 --region us-east-1
+
+      - The output will contain a new GroupId, for example sg-xxxxxxxx.
+
+      - Copy that actual ID and set it: 
+         - set TUNNEL_SG=sg-xxxxxxxx
+
+      - No inbound rules are required. The instance will be managed through SSM, not SSH.
+
+63. Allow the new EC2 security group to connect to RDS
+
+     - aws ec2 authorize-security-group-ingress --group-id sg-09d8ae58a41013c1f --protocol tcp --port 5432 --source-group %TUNNEL_SG% --region us-east-1
+
+     - This allows PostgreSQL traffic from the new tunnel instance's security group to reach RDS.
+
+64 - Create the IAM trust policy
+
+     - powershell -NoProfile -Command "Set-Content -Path 'ssm-trust-policy.json' -Encoding ascii -Value '{`"Version`":`"2012-10-17`",`"Statement`":[{`"Effect`":`"Allow`",`"Principal`":{`"Service`":`"ec2.amazonaws.com`"},`"Action`":`"sts:AssumeRole`"}]}'"
+     - This allows EC2 to assume the IAM role.
+
+65 - Create the IAM role
+     - aws iam create-role --role-name AEP-New-SSM-Tunnel-Role --assume-role-policy-document file://ssm-trust-policy.json
+
+66 - Attach the AWS-managed SSM policy:
+     - aws iam attach-role-policy --role-name AEP-New-SSM-Tunnel-Role --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+67 - Create an instance profile
+     - aws iam create-instance-profile --instance-profile-name AEP-New-SSM-Tunnel-Profile
+
+     - An EC2 Instance Profile is required because it is the mechanism AWS uses to attach an IAM role to an EC2 instance. 
+     - Instance Profile attaches those permissions to EC2.
+
+     - What happens if we don't create an instance profile?
+        - EC2 won't receive the IAM role through this mechanism.
+        - The SSM Agent won't have the required IAM permissions to register the instance.
+        - The instance may not appear as Online in Systems Manager.
+        - Our port-forwarding command may fail because SSM cannot establish a session.
+        
+     - The key takeaway: IAM Role defines permissions; Instance Profile attaches those permissions to EC2.
+
+68 - Add the IAM role to it:
+
+     - aws iam add-role-to-instance-profile --instance-profile-name AEP-New-SSM-Tunnel-Profile --role-name AEP-New-SSM-Tunnel-Role
+
+     - Wait briefly for IAM propagation: timeout /t 15
+
+69 - Get the latest Amazon Linux 2023 AMI. We'll use Amazon Linux 2023, which supports the SSM Agent.
+     - for /f "delims=" %i in ('aws ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 --region us-east-1 --query "Parameter.Value" --output text') do set AMI_ID=%i
+
+     - echo %AMI_ID%
+
+70 - Launch the new EC2 instance
+     - aws ec2 run-instances --image-id %AMI_ID% --instance-type t3.micro --subnet-id %SUBNET_ID% --security-group-ids %TUNNEL_SG% --iam-instance-profile Name=AEP-New-SSM-Tunnel-Profile --associate-public-ip-address --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=AEP-New-SSM-Tunnel-Instance}]" --region us-east-1
+    The command creates:
+            - One new EC2 t3.micro instance.
+            - Amazon Linux 2023 operating system.
+            - New tunnel security group.
+            - New SSM IAM instance profile.
+            - Public IP for outbound SSM connectivity.
+
+71 - Copy the returned InstanceId and set it:
+        - set INSTANCE_ID=i-xxxxxxxxxxxxxxxxx
+
+72 - Wait until EC2 is running
+
+        - aws ec2 wait instance-running --instance-ids %INSTANCE_ID% --region us-east-1
+
+73 - Check the instance:
+       - aws ec2 describe-instances --instance-ids %INSTANCE_ID% --region us-east-1 --query "Reservations[0].Instances[0].[InstanceId,State.Name,PrivateIpAddress,PublicIpAddress]" --output table
+
+74 - Wait for SSM to register the instance
+
+       - aws ssm describe-instance-information --region us-east-1 --query "InstanceInformationList[?InstanceId=='%INSTANCE_ID%'].[InstanceId,PingStatus]" --output table
+       - Expected status: Online
+
+75 - Create the SSM tunnel configuration
+
+      - Create a new configuration file:
+
+      -    (
+            echo {
+            echo   "host": ["aep-postgres.cmpwo8c6ov6h.us-east-1.rds.amazonaws.com"],
+            echo   "portNumber": ["5432"],
+            echo   "localPortNumber": ["15433"]
+            echo }
+            ) > ssm-params-new.json
+
+76 - Verify:
+     - type ssm-params-new.json
+
+77 - Check that local port 15433 is free
+
+     - netstat -ano | findstr :15433
+
+     - If there is no output, continue.
+
+78 - Establish the new secure tunnel
+
+     - aws ssm start-session --region us-east-1 --target %INSTANCE_ID% --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters file://ssm-params-new.json
+
+     - Expected output
+            Starting session with SessionId: ...
+            Port 15433 opened for sessionId ...
+            Waiting for connections...
+     - Keep this CMD window open.
+
+79 - Connect to PostgreSQL from VS Code
+
+     Setting	                     Value
+        Connection name	              AEP RDS - New Tunnel
+        Host	                      127.0.0.1
+        Port	                      15433
+        Database	                  aepdb
+        Username	                  Your RDS username
+        Password	                  Your RDS password
+
+80 - . Verify the tunnel
+     - Open a second CMD window:
+     - netstat -ano | findstr :15433
+
+81 -  A few important notes:
+        - RDS remains private; we are not making it publicly accessible.
+        - The EC2 security group has no inbound rules.
+        - The EC2 instance needs outbound connectivity to SSM endpoints. Our selected subnet's internet gateway route provides this.
+        - The RDS security group allows port 5432 from the new EC2 security group.
+        - Stop the EC2 instance when you no longer need the tunnel to reduce compute charges.
+
+
+
+
+
+ 
+
+
+
+

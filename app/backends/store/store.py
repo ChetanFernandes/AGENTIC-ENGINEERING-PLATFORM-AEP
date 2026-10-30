@@ -1,5 +1,5 @@
 from deepagents.backends import StoreBackend
-from langgraph.store.memory import InMemoryStore
+#from langgraph.store.memory import InMemoryStore
 from deepagents.backends.utils import create_file_data
 from app.permession_management.permession_wrapper import PolicyWrapper
 from pathlib import Path
@@ -17,6 +17,7 @@ log = setup_logging()
 import asyncio
 
 
+
 class backend:
 
     def __init__(self, blob_storage):
@@ -25,24 +26,32 @@ class backend:
         self.store.setup()  # ensures the Store's PostgreSQL tables are initialized.
         self.artifact_storage = ArtifactStorage()
         self.blob_storage = blob_storage
-        self.update_defaults()
+
+    @classmethod # means the method belongs to the class rather than a specific object.
+    async def create(cls,blob_storage): #cls refers to the class itself, such as backend.
+        instance = cls(blob_storage) # is equivalent to instance = backend(blob_storge)
+        await instance.update_defaults()
+        return instance
+    
 
     async def update_defaults(self):
-
         namespace_memory = ("main_agent", "main_agent_skill")
         key =  "/AGENTS.md"
         path = Path(r"app/executor/langgraph/AGENTS.md")
-        item = self.store.aget(namespace_memory,key)
-        #self.store.put(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
-        if not item:
-            self.store.aput(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
+        item = await self.store.aget(namespace_memory,key)
+        #log.info('Agent_md_data_item:%s',item)
+        data = item.value.get("content","") if item else ""
+        #log.info('Agent_md_data:%s',data)
+        if not data:
+            await self.store.aput(namespace_memory, "/AGENTS.md", create_file_data(path.read_text(encoding = 'utf-8')))
      
       
         namespace_memory = ("main_agent", "main_agent_learning")
         key =  "/SKILL.md"
-        item = self.store.get(namespace_memory,key)
-        if not item:
-            self.store.put(namespace_memory, key , create_file_data(""))
+        item = await self.store.aget(namespace_memory,key)
+        data = item.value.get("content","") if item else ""
+        if not data:
+            await self.store.aput(namespace_memory, key , create_file_data(""))
         else:
             pass
 
@@ -52,10 +61,12 @@ class backend:
         namespace_skills = ("sub_agent","sub_agent_skill")
         key = "/SKILL.md"
         path = Path(r"skills/repository-analysis/SKILL.md")
-        item = self.store.get(namespace_skills,key)
-        #self.store.put(namespace_skills , key, create_file_data(path.read_text(encoding='utf-8')))
-        if not item:
-            self.store.put(namespace_skills , key, create_file_data(path.read_text(encoding='utf-8')))
+        item = await self.store.aget(namespace_skills,key)
+        #log.info('SKILL_MD_item:%s',item)
+        data = item.value.get("content","") if item else ""
+        #log.info('SKILL_MD:%s',data)
+        if not data:
+            await self.store.aput(namespace_skills , key, create_file_data(path.read_text(encoding='utf-8')))
         else:
             pass
 
@@ -86,7 +97,7 @@ class backend:
 
     #--------------------Storing Agent Output----------------------------------------------------------------------------------------------
 
-    def store_agent_output(self,agent, user_id, agent_output, execution_id):
+    async def store_agent_output(self,agent, user_id, agent_output, execution_id):
         artifact_id = str(uuid4())
         storage_key = f"{user_id}/{execution_id}/{agent}/{artifact_id}"
 
@@ -94,14 +105,14 @@ class backend:
         self.artifact_storage.blob_save(storage_key, agent_output, self.blob_storage)
 
         artifact_record = ArtifactRecord(artifact_id = artifact_id , user_id = user_id, agent = agent, storage_key = storage_key, execution_id=execution_id)
-        self.store_artifact_record_SQL(artifact_record)
+        await self.store_artifact_record_SQL(artifact_record)
         return artifact_record
 
 
-    def store_artifact_record_SQL(self,artifact_record):
+    async def store_artifact_record_SQL(self,artifact_record):
         namespace = ("artifacts", artifact_record.user_id)
         key = artifact_record.artifact_id
-        self.store.put(namespace, key, artifact_record.model_dump()) # Pydantic object → Python dictionary
+        await self.store.aput(namespace, key, artifact_record.model_dump()) # Pydantic object → Python dictionary
 
     #-------------------------Storing Agent Output---------------------------------------------------------------------------------------
 
@@ -157,7 +168,7 @@ class backend:
         namespace = ("main_agent", "main_agent_learning")
         key = "/SKILL.md"
         item = await self.store.aget(namespace, key)
-        data = item.value["content"]
+        data = item.value.get("content")
         if data:
             return data
         else:
@@ -171,11 +182,11 @@ class backend:
 
 #----------------------------Read user personal memory------------------------------------------------------
 
-    def read_user_personal_memory(self,user_id):
+    async def read_user_personal_memory(self,user_id):
         '''This is not requuired'''
         namespace = ("users", user_id)
         key = f"/USER_MEMORY.md"
-        item = self.store.get(namespace,key)
+        item = await self.store.aget(namespace,key)
         if item:
             data = item.value.get("content","")
         else:
@@ -274,14 +285,7 @@ def get_agent_output(self, user_id, artifact_id,):
 '''
 
     
-        
-
-@tool
-async def write_memory(self,memory: str, runtime:ToolRuntime):
-    """Store important information about the user for future conversations."""
-    user_id = runtime.context.user_id
-    return await self.write_user_personal_memory(user_id = user_id, agent_learning=memory)
-
+    
 
 
 

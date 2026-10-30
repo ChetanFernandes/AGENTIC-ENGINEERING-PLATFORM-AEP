@@ -3,9 +3,25 @@
 
 # Build and start services
     docker compose up -d --build
+            Part	                         Meaning in simple words
+                docker compose	                  Manage the services defined in your docker-compose.yml file.
+                up	                              Create and start the containers.
+                -d	                              Run them in the background so your terminal is free.
+                --build	                          Build or rebuild the images using your Dockerfiles before starting the services.
+
+# Only Buid images
+    docker compose build
 
 # Check running containers
     docker compose ps
+
+# Remove images using Docker Compose
+    docker compose down --rmi all
+            - Stop and remove the containers created by your Compose project.
+            - Remove the images used by those services, subject to Docker's image-removal rules.
+
+# CHeck image creation database 
+    docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.CreatedSince}}\t{{.Size}}"
 
 # Stop services
     docker compose down
@@ -13,6 +29,9 @@
 # View live logs
     docker compose logs -f
 
+# View live logs in aws
+    aws logs tail /ecs/aep-api --since 30m --follow --region us-east-1
+    
 # Logs from a specific container
     docker logs -f <container_name>
 
@@ -50,63 +69,29 @@
     a. docker compose exec postgres — targets the postgres service defined in your docker-compose.yml.
     b. psql -U postgres -d postgres — opens the PostgreSQL command-line client using the postgres user and connects to the default postgres database.
 
-    Command	Name to use	Example
-Start a service	Service name	             docker compose start ui
-Rebuild a service	Service name	          docker compose build ui
-Recreate a service	Service name	         docker compose up -d --no-deps ui
-View service logs	Service name	docker compose logs -f ui
-Execute a command inside a service	Service name	docker compose exec api bash
-Start a specific existing container	Container name	docker start aep-ui-1
-Inspect a specific container	Container name or ID	docker inspect aep-ui-1
+    
+# Start a service	Service name	             
+    docker compose start ui
+
+# Rebuild a service	Service name	          
+    docker compose build ui
+
+# Recreate a service Service name	         
+    docker compose up -d --no-deps ui
+
+# View service logs	Service name	
+    docker compose logs -f ui
+
+# Execute a command inside a service Service name	
+    docker compose exec api bash
+
+# Start a specific existing container	Container name	
+    docker start aep-ui-1
+
+# Inspect a specific container	Container name or ID	
+    docker inspect aep-ui-1
 
 
-To pull task definitom
-
-aws ecs describe-task-definition `
-  --task-definition aep-api-task:12 `
-  --region us-east-1 `
-  --query "taskDefinition" `
-  --output json > api-task-definition.json
 
 
-To remove unrequired contents
-$td = Get-Content .\aws_fargate\ui_tasks\aep-ui-task_7.json -Raw | ConvertFrom-Json; @("taskDefinitionArn","revision","status","requiresAttributes","compatibilities","registeredAt","registeredBy","deregisteredAt") | ForEach-Object { $td.PSObject.Properties.Remove($_) }; $td | ConvertTo-Json -Depth 100 | Set-Content .\aws_fargate\ui_tasks\aep-ui-task_8.json -Encoding ascii; Write-Host "Cleaned UI task definition saved to aws_fargate\ui_tasks\aep-ui-task_8.json"
 
-To verify JSON
-Get-Content aws_fargate\api_task\api-task-definition_12.json -Raw | ConvertFrom-Json
-
-register new version
-aws ecs register-task-definition --cli-input-json file://aws_fargate\api_task\api-task-definition_13.json --region us-east-1
-
-verify register version
-aws ecs describe-task-definition --task-definition aep-api-task:13 --region us-east-1 --query "taskDefinition.{Family:family,Revision:revision,Image:containerDefinitions[0].image,CPU:cpu,Memory:memory}" --output table
-
-launch
-aws ecs run-task --cluster aep-cluster --launch-type FARGATE --task-definition aep-api-task:13 --network-configuration "awsvpcConfiguration={subnets=[subnet-017229d7a5d14863f,subnet-09095ef675d97c0cd], securityGroups=[sg-0f0c5c4a1d4966dc8],assignPublicIp=ENABLED}" --platform-version LATEST --region us-east-1 --query "tasks[*].{TaskArn:taskArn,LastStatus:lastStatus,DesiredStatus:desiredStatus}" --output json
-
-To verify
-aws ecs describe-tasks --cluster aep-cluster --region us-east-1 --tasks arn:aws:ecs:us-east-1:135053048192:task/aep-cluster/2160e7ef64374792a2cb6f1b36746e1c --query "tasks[*].{Task:taskArn,Definition:taskDefinitionArn,Status:lastStatus,Desired:desiredStatus,StoppedReason:stoppedReason,Containers:containers[*].{Name:name,Status:lastStatus,ExitCode:exitCode}}" --output json
-
-To check logs
-aws logs tail "/ecs/aep-api" --since 10m --region us-east-1
-
-To get private IP
- aws ecs describe-tasks `
->>   --cluster aep-cluster `
->>   --region us-east-1 `
->>   --tasks (aws ecs list-tasks --cluster aep-cluster --region us-east-1 --family aep-api-task --desired-status RUNNING --query "taskArns[]" --output text).Split() `
->>   --query "tasks[*].{TaskId:taskArn,Revision:taskDefinitionArn,Status:lastStatus,PrivateIP:attachments[0].details[?name=='privateIPv4Address'].value|[0]}" `
->>   --output table
-
-
-Luacnh UI task
-aws ecs run-task `
-  --cluster aep-cluster `
-  --launch-type FARGATE `
-  --task-definition aep-ui-task:8 `
-  --network-configuration "awsvpcConfiguration={subnets=[subnet-017229d7a5d14863f],securityGroups=[sg-0cf57c1b1bff6af5c],assignPublicIp=ENABLED}" `
-  --platform-version LATEST `
-  --region us-east-1 `
-  --count 1 `
-  --query "tasks[*].{TaskArn:taskArn,LastStatus:lastStatus,DesiredStatus:desiredStatus}" `
-  --output json

@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, START , END
 from app.executor.context_management.context_manager import ContextManager
 from config.llm_config import llm_call
 from deepagents import create_deep_agent
-from langsmith.sandbox import SandboxClient
+from langsmith.sandbox import SandboxClient  
 from app.executor.langgraph.prompt_1 import main_agent_system_prompt
 from app.middleware.tool_call_tracking_middleware.tool_tracking import state_Tool_Tracking
 from app.middleware.summarization_middleware.summarization_middleware import create_summarization_middleware
@@ -90,13 +90,15 @@ class AgentExecutor:
 
             #self.checkpointer = MemorySaver()
 
-            self.store_backend = backend(blob_storage = BlobStorage())
             self.distructive_tools = None
             self.interrupt_on = {}
             self.discarded = False
             self.exit_stack = AsyncExitStack()
             self.sandbox_backend = None
             self.ls_sandbox = None
+
+        async def initialize(self):
+            self.store_backend = await backend.create(blob_storage=BlobStorage())  # Python automatically passes the backend class as cls.
 
     except Exception:
         log.exception("Error while initializing graph")
@@ -105,7 +107,7 @@ class AgentExecutor:
 
     async def router(self, state:CustomState , runtime:Runtime, config : RunnableConfig ):
         try:
-            self.sandbox_backend, self.ls_sandbox = sandbox_provision(self.client)
+            self.sandbox_backend, self.ls_sandbox = await asyncio.to_thread(sandbox_provision,self.client)
             log.info("user_id:%s",runtime.context.user_id)
             #log.info("llm_open_ai:%s",runtime.context.llm_open_ai)
             log.info("thread_id:%s",config["configurable"].get("thread_id","NA"))
@@ -388,7 +390,7 @@ class AgentExecutor:
 
             execution_id = config["metadata"]["execution_id"]
             
-            artifact_record = self.store_backend.store_agent_output(agent_name, user_id, agent_output, execution_id )
+            artifact_record = await self.store_backend.store_agent_output(agent_name, user_id, agent_output, execution_id )
 
             if route_is_final and status == "success":
                 
