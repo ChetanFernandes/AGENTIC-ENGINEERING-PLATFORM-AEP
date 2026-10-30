@@ -26,6 +26,8 @@ logs/
 tmp/
 temp/
 offload/
+docs/
+llm_gateway/
 
 # Streamlit
 .streamlit/secrets.toml
@@ -42,3 +44,8 @@ Thumbs.db
 .ruff_cache/
 docs/
 logs/
+
+notes/
+docker_commands.txt
+psql
+mcp_demo/
